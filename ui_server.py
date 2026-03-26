@@ -361,14 +361,31 @@ async def get_demo_page():
 
 # ── Prometheus Metrics (#40) ──────────────────────────────────────────────────
 try:
-    from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+    from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST, CollectorRegistry, REGISTRY
     from fastapi.responses import Response as _Resp
 
-    _voice_calls_total   = Counter("voice_calls_total",   "Total calls handled by the agent")
-    _voice_calls_booked  = Counter("voice_calls_booked_total", "Calls that resulted in a booking")
-    _voice_call_duration = Histogram("voice_call_duration_seconds", "Call duration in seconds",
+    # Safely register metrics — avoid duplicates when uvicorn reload=True re-imports this module
+    def _get_or_create_metric(metric_cls, name, description, **kwargs):
+        """Return existing metric if already registered, otherwise create it."""
+        try:
+            return metric_cls(name, description, **kwargs)
+        except ValueError:
+            # Already registered — fetch from the default registry
+            for collector in REGISTRY._names_to_collectors.values():
+                if hasattr(collector, '_name') and collector._name == name:
+                    return collector
+            # Fallback: unregister and re-register
+            try:
+                REGISTRY.unregister(REGISTRY._names_to_collectors.get(name))
+            except Exception:
+                pass
+            return metric_cls(name, description, **kwargs)
+
+    _voice_calls_total   = _get_or_create_metric(Counter, "voice_calls_total",   "Total calls handled by the agent")
+    _voice_calls_booked  = _get_or_create_metric(Counter, "voice_calls_booked_total", "Calls that resulted in a booking")
+    _voice_call_duration = _get_or_create_metric(Histogram, "voice_call_duration_seconds", "Call duration in seconds",
                                       buckets=[10, 30, 60, 120, 300, 600, 1200])
-    _voice_calls_active  = Gauge("voice_calls_active", "Currently active calls")
+    _voice_calls_active  = _get_or_create_metric(Gauge, "voice_calls_active", "Currently active calls")
 
     @app.get("/metrics", include_in_schema=False)
     def metrics():
@@ -1247,7 +1264,7 @@ function renderLangGrid() {{
       border:2px solid ${{id===currentLangPreset ? p.color : 'var(--border)'}};
       border-radius:12px;padding:18px;cursor:pointer;transition:all 0.15s;
       ${{id===currentLangPreset ? 'box-shadow:0 0 16px rgba(108,99,255,0.2)' : ''}}
-    " onmouseover="this.style.borderColor='${{p.color}}'" onmouseout="this.style.borderColor='${{id===currentLangPreset?p.color:'var(--border)}}'">
+    " onmouseover="this.style.borderColor='${{p.color}}'" onmouseout="this.style.borderColor='${{id===currentLangPreset?p.color:'var(--border)'}}'">
       <div style="font-size:28px;margin-bottom:8px;">${{p.flag}}</div>
       <div style="font-weight:700;font-size:14px;color:${{id===currentLangPreset?p.color:'var(--text)'}}">${{p.label}}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:3px;">${{p.sub}}</div>
@@ -1367,4 +1384,4 @@ loadDashboard();
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("ui_server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("ui_server:app", host="127.0.0.1", port=8000, reload=True)
