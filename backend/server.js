@@ -29,7 +29,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
         const fallbackPrompt = "You are the smart AI agent for RapidX SaaS. Keep answers extremely short, professional, and confident.";
         const finalPrompt = agentData?.system_prompt || fallbackPrompt;
 
-        // 2. Create a Call on Ultravox to get a secure WebSocket connect URL
+        // 1. Create a Call on Ultravox to get a secure WebSocket connect URL
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
             method: 'POST',
             headers: {
@@ -38,13 +38,18 @@ app.post('/api/twilio/inbound', async (req, res) => {
             },
             body: JSON.stringify({
                 systemPrompt: finalPrompt,
-                model: "fixie-ai/ultravox-70B",
                 voice: agentData?.voice_preset || "Mark",
-                temperature: agentData?.temperature || 0.3
+                temperature: agentData?.temperature || 0.3,
+                firstSpeaker: "AGENT", // Force the AI to say hello first!
+                medium: { twilio: {} } // CRITICAL: Tell Ultravox to use Twilio's audio stream format!
             })
         });
 
         const uvData = await uvResponse.json();
+        // If Ultravox rejected our API call, the joinUrl will crash the Twilio stream silently.
+        if (!uvData.joinUrl) {
+            console.error("Ultravox API failed to generate WebSocket:", uvData);
+        }
         const joinUrl = uvData.joinUrl;
 
         // 3. SECURE LOGGING: Save the call instantly directly into your Supabase Database
@@ -93,13 +98,17 @@ app.post('/api/calls/outbound', async (req, res) => {
             },
             body: JSON.stringify({
                 systemPrompt: systemPrompt || "You are an outbound sales AI calling a lead. Be incredibly persuasive, warm, and brief.",
-                model: "fixie-ai/ultravox-70B",
                 voice: "Mark", // You can change this voice dynamically
-                temperature: 0.3
+                temperature: 0.3,
+                firstSpeaker: "AGENT", // Agent speaks first!
+                medium: { twilio: {} } // CRITICAL: Tell Ultravox to use Twilio's audio stream format!
             })
         });
 
         const uvData = await uvResponse.json();
+        if (!uvData.joinUrl) {
+            console.error("Ultravox API failed to generate Outbound WebSocket:", uvData);
+        }
         const joinUrl = uvData.joinUrl;
 
         // 2. Format the inline TwiML XML payload 
