@@ -1,128 +1,135 @@
 const express = require('express');
 const cors = require('cors');
-const twilio = require('twilio');
-require('dotenv').config();
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
-// Twilio sends urlencoded requests for inbound webhooks
 app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(cors());
 
-// Environmental Variables checking
-const PORT = process.env.PORT || 8000;
-const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
-const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
+const PORT = 8000;
 const ULTRAVOX_API_KEY = process.env.ULTRAVOX_API_KEY;
 
-let twilioClient;
-if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN) {
-    twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
-}
+// Initialize Supabase Database Engine
+const supabase = createClient(
+    process.env.SUPABASE_URL || 'https://dummy.supabase.co',
+    process.env.SUPABASE_KEY || 'dummy_key'
+);
 
-/**
- * Helper to create an active Ultravox Voice session.
- * Used identically for both Inbound and Outbound calling.
- */
-async function createUltravoxCall(systemPrompt) {
-    const response = await fetch('https://api.ultravox.ai/api/calls', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': ULTRAVOX_API_KEY
-        },
-        body: JSON.stringify({
-            systemPrompt: systemPrompt || "You are a helpful SaaS agent.",
-            model: "fixie-ai/ultravox", // Best standard default
-            medium: { twilio: {} }     // Inform Ultravox this stream uses Twilio
-        })
-    });
-
-    if (!response.ok) {
-        throw new Error(`Ultravox API Error: ${await response.text()}`);
-    }
-    
-    return await response.json(); // Returns { joinUrl, callId }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 1. INBOUND CALLING (Twilio Webhook)
-// ─────────────────────────────────────────────────────────────────────────────
+// Inbound webhook from Twilio
 app.post('/api/twilio/inbound', async (req, res) => {
     try {
-        const callerPhone = req.body.From;
-        console.log(`[INBOUND] Received call from: ${callerPhone}`);
+        const callerPhone = req.body.From || "Unknown";
+        const twilioPhone = req.body.To || "Unknown";
+        const callSid = req.body.CallSid || "No_SID";
+        console.log(`Inbound Call Received from: ${callerPhone}`);
 
-        // 1. You would query your Supabase DB here for the custom Prompt using callerPhone
-        const prompt = "You are a highly professional inbound answering service.";
+        // 1. Check database for Custom System Prompt
+        const { data: agentData } = await supabase.from('agent_settings').select('*').limit(1).single();
+        const fallbackPrompt = "You are the smart AI agent for RapidX SaaS. Keep answers extremely short, professional, and confident.";
+        const finalPrompt = agentData?.system_prompt || fallbackPrompt;
 
-        // 2. Generate a secure streaming URL from Ultravox
-        const uvCall = await createUltravoxCall(prompt);
-        console.log(`[INBOUND] Ultravox Call Created: ${uvCall.callId}`);
+        // 2. Create a Call on Ultravox to get a secure WebSocket connect URL
+        const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': ULTRAVOX_API_KEY
+            },
+            body: JSON.stringify({
+                systemPrompt: finalPrompt,
+                model: "fixie-ai/ultravox-70B",
+                voice: agentData?.voice_preset || "Mark",
+                temperature: agentData?.temperature || 0.3
+            })
+        });
 
-        // 3. Return XML (TwiML) to Twilio to instantly bridge the audio
-        const twiml = `
-        <Response>
-            <Connect>
-                <Stream url="${uvCall.joinUrl}" />
-            </Connect>
-        </Response>`;
+        const uvData = await uvResponse.json();
+        const joinUrl = uvData.joinUrl;
 
-        res.type('text/xml');
-        return res.send(twiml);
-        
+        // 3. SECURE LOGGING: Save the call instantly directly into your Supabase Database
+        await supabase.from('calls').insert([{
+            direction: 'inbound',
+            from_phone: callerPhone,
+            to_phone: twilioPhone,
+            status: 'active',
+            twilio_sid: callSid
+        }]);
+
+        // 4. Return Twilio XML (TwiML) instantly bridging the caller to the Ultravox WebSocket
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect>
+        <Stream url="${joinUrl}">
+            <Parameter name="myCustomMetadata" value="InboundCall"/>
+        </Stream>
+    </Connect>
+</Response>`;
+
+        res.set('Content-Type', 'text/xml');
+        res.send(twiml);
+        console.log("Audio Stream successfully relayed to Ultravox!");
+
     } catch (error) {
-        console.error('[INBOUND ERROR]', error);
-        res.status(500).send('Server Error');
+        console.error("Ultravox Connection Error:", error);
+        res.status(500).send("Error connecting AI Agent");
     }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 2. OUTBOUND CALLING (React Dashboard triggers this)
-// ─────────────────────────────────────────────────────────────────────────────
+// Outbound trigger endpoint (For the React Dashboard)
 app.post('/api/calls/outbound', async (req, res) => {
-    const { toPhone, systemPrompt } = req.body;
-
-    if (!twilioClient) {
-        return res.status(500).json({ error: "Twilio credentials missing in backend." });
-    }
-    if (!toPhone) {
-        return res.status(400).json({ error: "Missing 'toPhone' parameter." });
-    }
-
     try {
-        console.log(`[OUTBOUND] Creating AI agent to call ${toPhone}`);
+        const { toPhone, systemPrompt } = req.body;
+        if (!toPhone) return res.status(400).json({ error: "Missing toPhone parameter." });
+        
+        console.log(`Initiating Outbound Call to: ${toPhone}`);
 
-        // 1. Pre-generate the Ultravox AI streaming URL
-        const uvCall = await createUltravoxCall(systemPrompt);
+        // 1. Create a specialized Outbound Ultravox session to construct the secure audio WebSocket
+        const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': ULTRAVOX_API_KEY
+            },
+            body: JSON.stringify({
+                systemPrompt: systemPrompt || "You are an outbound sales AI calling a lead. Be incredibly persuasive, warm, and brief.",
+                model: "fixie-ai/ultravox-70B",
+                voice: "Mark", // You can change this voice dynamically
+                temperature: 0.3
+            })
+        });
 
-        // 2. Write the TwiML response telling Twilio what to do as soon as the person answers
-        const twiml = `<Response><Connect><Stream url="${uvCall.joinUrl}" /></Connect></Response>`;
+        const uvData = await uvResponse.json();
+        const joinUrl = uvData.joinUrl;
 
-        // 3. Command Twilio to dial out and inject the TwiML instantly
+        // 2. Format the inline TwiML XML payload 
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect>
+        <Stream url="${joinUrl}">
+            <Parameter name="myCustomMetadata" value="Outbound Sales Call"/>
+        </Stream>
+    </Connect>
+</Response>`;
+
+        // 3. Directly command Twilio to physically dial the lead utilizing the SDK
+        const twilioClient = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+        
         const call = await twilioClient.calls.create({
             twiml: twiml,
             to: toPhone,
-            from: TWILIO_PHONE_NUMBER
+            from: process.env.TWILIO_PHONE_NUMBER
         });
 
-        console.log(`[OUTBOUND] Twilio Ringing... Call SID: ${call.sid}`);
-        return res.json({ success: true, callSid: call.sid, ultravoxCallId: uvCall.callId });
+        console.log(`Outbound Call Live - Status: ${call.status} - SID: ${call.sid}`);
+        res.json({ success: true, callSid: call.sid, message: "Dialing the lead now!" });
 
     } catch (error) {
-        console.error('[OUTBOUND ERROR]', error);
-        return res.status(500).json({ error: 'Failed to initiate outbound call', details: error.message });
+        console.error("Critical Outbound Dialing Error:", error);
+        res.status(500).json({ error: error.message || "Failed to launch outbound API." });
     }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 3. HEALTH CHECK
-// ─────────────────────────────────────────────────────────────────────────────
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', message: 'SaaS Voice API is running!' });
-});
-
-app.listen(PORT, () => {
-    console.log(`🚀 Backend SaaS API running on port ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`AI Backend API running on port ${PORT}...`);
 });
