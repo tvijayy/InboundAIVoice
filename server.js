@@ -54,7 +54,56 @@ app.post('/api/twilio/inbound', async (req, res) => {
 
 // Outbound trigger endpoint (For the React Dashboard)
 app.post('/api/calls/outbound', async (req, res) => {
-    res.json({ message: "Outbound AI trigger ready." });
+    try {
+        const { toPhone, systemPrompt } = req.body;
+        if (!toPhone) return res.status(400).json({ error: "Missing toPhone parameter." });
+        
+        console.log(`Initiating Outbound Call to: ${toPhone}`);
+
+        // 1. Create a specialized Outbound Ultravox session to construct the secure audio WebSocket
+        const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': ULTRAVOX_API_KEY
+            },
+            body: JSON.stringify({
+                systemPrompt: systemPrompt || "You are an outbound sales AI calling a lead. Be incredibly persuasive, warm, and brief.",
+                model: "fixie-ai/ultravox-70B",
+                voice: "Mark", // You can change this voice dynamically
+                temperature: 0.3
+            })
+        });
+
+        const uvData = await uvResponse.json();
+        const joinUrl = uvData.joinUrl;
+
+        // 2. Format the inline TwiML XML payload 
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect>
+        <Stream url="${joinUrl}">
+            <Parameter name="myCustomMetadata" value="Outbound Sales Call"/>
+        </Stream>
+    </Connect>
+</Response>`;
+
+        // 3. Directly command Twilio to physically dial the lead utilizing the SDK
+        const twilioClient = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+        
+        const call = await twilioClient.calls.create({
+            twiml: twiml,
+            to: toPhone,
+            from: process.env.TWILIO_PHONE_NUMBER
+        });
+
+        console.log(`Outbound Call Live - Status: ${call.status} - SID: ${call.sid}`);
+        res.json({ success: true, callSid: call.sid, message: "Dialing the lead now!" });
+
+    } catch (error) {
+        console.error("Critical Outbound Dialing Error:", error);
+        res.status(500).json({ error: error.message || "Failed to launch outbound API." });
+    }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
