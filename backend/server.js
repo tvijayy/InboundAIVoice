@@ -26,7 +26,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
 
         // 1. Check database for Custom System Prompt
         const { data: agentData } = await supabase.from('agent_settings').select('*').limit(1).single();
-        const fallbackPrompt = "You are the smart AI agent for RapidX SaaS. Keep answers extremely short, professional, and confident.";
+        const fallbackPrompt = "You are the smart AI agent for Azlon AI Voice Platform. Keep answers extremely short, professional, and confident.";
         const finalPrompt = agentData?.system_prompt || fallbackPrompt;
 
         // 1. Create a Call on Ultravox to get a secure WebSocket connect URL
@@ -130,12 +130,38 @@ app.post('/api/calls/outbound', async (req, res) => {
             from: process.env.TWILIO_PHONE_NUMBER
         });
 
+        // SECURE LOGGING: Write the outbound call directly into your Supabase Data Table!
+        await supabase.from('calls').insert([{
+            direction: 'outbound',
+            from_phone: process.env.TWILIO_PHONE_NUMBER,
+            to_phone: toPhone,
+            status: call.status,
+            twilio_sid: call.sid
+        }]);
+
         console.log(`Outbound Call Live - Status: ${call.status} - SID: ${call.sid}`);
         res.json({ success: true, callSid: call.sid, message: "Dialing the lead now!" });
 
     } catch (error) {
         console.error("Critical Outbound Dialing Error:", error);
         res.status(500).json({ error: error.message || "Failed to launch outbound API." });
+    }
+});
+
+// Fetch Call Logs mapping for the React Dashboard!
+app.get('/api/calls', async (req, res) => {
+    try {
+        const { data: calls, error } = await supabase
+            .from('calls')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(50);
+            
+        if (error) throw error;
+        res.json({ success: true, calls });
+    } catch (err) {
+        console.error("Dashboard Fetch Error:", err);
+        res.status(500).json({ error: "Could not fetch database." });
     }
 });
 
