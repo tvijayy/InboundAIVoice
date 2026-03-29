@@ -1,9 +1,22 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BarChart3, Calendar, Bot, Mic, Key, Phone, Users, PhoneOutgoing, Globe, Sparkles } from 'lucide-react';
 import { cn } from './lib/utils';
 
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
+  const [callLogs, setCallLogs] = useState([]);
+
+  useEffect(() => {
+    // Fetch live call data from our Express server which queries Supabase
+    fetch('https://saas-backend.xqnsvk.easypanel.host/api/calls')
+      .then(res => res.json())
+      .then(data => {
+         if (data.success) {
+            setCallLogs(data.calls);
+         }
+      })
+      .catch(console.error);
+  }, [activePage]);
 
   const navigation = [
     { section: 'Overview' },
@@ -39,8 +52,8 @@ export default function App() {
             </svg>
           </div>
           <div>
-            <h1 className="font-bold text-sm leading-tight">Voice Agent</h1>
-            <p className="text-[10px] text-muted-foreground">RapidX AI SaaS</p>
+            <h1 className="font-bold text-sm leading-tight">Azlon AI</h1>
+            <p className="text-[10px] text-muted-foreground">Advanced Voice SaaS</p>
           </div>
         </div>
 
@@ -110,11 +123,39 @@ export default function App() {
             {/* Recent Calls Data Table Skeleton */}
             <div className="bg-card border border-border rounded-xl flex flex-col px-6 py-5">
               <div className="flex justify-between items-center mb-4 border-b border-border pb-3">
-                <h3 className="font-semibold text-sm">Recent Calls</h3>
-                <button className="text-xs text-muted-foreground hover:text-primary transition">↻ Refresh</button>
+                <h3 className="font-semibold text-sm">Recent Calls (Supabase Cloud)</h3>
+                <button className="text-xs text-muted-foreground hover:text-primary transition" onClick={() => setActivePage('dashboard')}>↻ Refresh</button>
               </div>
-              <div className="text-center py-12 text-sm text-muted-foreground">
-                TanStack Query & Supabase fetches will render here!
+              
+              <div className="overflow-x-auto text-sm text-foreground">
+                {callLogs.length === 0 ? (
+                  <div className="text-center py-12 text-sm text-muted-foreground">
+                    Fetching Supabase Records...
+                  </div>
+                ) : (
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="pb-3 px-2 font-medium text-muted-foreground">Direction</th>
+                        <th className="pb-3 px-2 font-medium text-muted-foreground">Phone Number</th>
+                        <th className="pb-3 px-2 font-medium text-muted-foreground">Status</th>
+                        <th className="pb-3 px-2 font-medium text-muted-foreground">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {callLogs.map((call, idx) => (
+                        <tr key={idx} className="border-b border-border/50 hover:bg-white/5 transition-colors">
+                          <td className="py-3 px-2 capitalize">{call.direction}</td>
+                          <td className="py-3 px-2 text-primary font-mono">{call.direction === 'inbound' ? call.from_phone : call.to_phone}</td>
+                          <td className="py-3 px-2">
+                             <span className="bg-green-500/10 text-green-500 px-2.5 py-1 rounded-full text-xs font-semibold uppercase">{call.status}</span>
+                          </td>
+                          <td className="py-3 px-2 text-muted-foreground text-xs">{new Date(call.created_at).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </div>
           </div>
