@@ -40,7 +40,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                 systemPrompt: finalPrompt,
                 voice: agentData?.voice_preset || "Mark",
                 temperature: agentData?.temperature || 0.3,
-                firstSpeaker: "AGENT", // Force the AI to say hello first!
+                firstSpeaker: "FIRST_SPEAKER_AGENT", // Force the AI to say hello first!
                 medium: { twilio: {} } // CRITICAL: Tell Ultravox to use Twilio's audio stream format!
             })
         });
@@ -100,7 +100,7 @@ app.post('/api/calls/outbound', async (req, res) => {
                 systemPrompt: systemPrompt || "You are an outbound sales AI calling a lead. Be incredibly persuasive, warm, and brief.",
                 voice: "Mark", // You can change this voice dynamically
                 temperature: 0.3,
-                firstSpeaker: "AGENT", // Agent speaks first!
+                firstSpeaker: "FIRST_SPEAKER_AGENT", // Agent speaks first!
                 medium: { twilio: {} } // CRITICAL: Tell Ultravox to use Twilio's audio stream format!
             })
         });
