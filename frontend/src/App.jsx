@@ -138,8 +138,76 @@ export default function App() {
           </div>
         )}
 
+        {activePage === 'outbound' && (
+          <div className="space-y-6 fade-in max-w-2xl mx-auto mt-10">
+            <div className="text-center">
+              <h2 className="text-3xl font-bold tracking-tight">AI Outbound Dialer</h2>
+              <p className="text-sm text-muted-foreground mt-2">Command your AI agent to physically place a phone call across the global telecom network immediately.</p>
+            </div>
+            
+            <div className="bg-card border border-border shadow-2xl shadow-primary/5 rounded-2xl p-8 mt-8">
+              <form className="space-y-5" onSubmit={async (e) => {
+                  e.preventDefault();
+                  const phoneInput = e.target.elements.phone.value;
+                  const promptInput = e.target.elements.prompt.value;
+                  
+                  try {
+                      // Call our live Easypanel Backend!
+                      const res = await fetch('https://saas-backend.xqnsvk.easypanel.host/api/calls/outbound', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ 
+                              toPhone: phoneInput,
+                              systemPrompt: promptInput
+                          })
+                      });
+                      
+                      const data = await res.json();
+                      if (data.success) {
+                          alert(`Success! Twilio is dialing ${phoneInput} right now!`);
+                      } else {
+                          alert("Backend Error: " + (data.error || "Unknown Failure"));
+                      }
+                  } catch (err) {
+                      alert("Network Error hitting the Easypanel API.");
+                  }
+              }}>
+                <div>
+                  <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Lead Phone Number</label>
+                  <input 
+                    name="phone"
+                    type="tel" 
+                    placeholder="+1 (555) 123-4567"
+                    className="w-full bg-background border border-border rounded-lg p-3.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Dynamic System Prompt (Overrides Agent Default)</label>
+                  <textarea 
+                    name="prompt"
+                    placeholder="E.g. You are calling John. Your absolute goal is to book a calendar appointment..."
+                    className="w-full bg-background border border-border rounded-lg p-3.5 text-sm h-[140px] outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-none"
+                  />
+                </div>
+
+                <div className="pt-4">
+                  <button 
+                    type="submit" 
+                    className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-lg p-3.5 text-sm shadow-[0_4px_14px_0_rgba(108,99,255,0.39)] hover:shadow-[0_6px_20px_rgba(108,99,255,0.23)] hover:-translate-y-0.5 transition-all flex justify-center items-center gap-2"
+                  >
+                    <PhoneOutgoing size={18} />
+                    Dispatch AI Agent Now
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* ... Other pages will be built out block-by-block using shadcn and standard react patterns */}
-        {activePage !== 'dashboard' && activePage !== 'agent' && (
+        {activePage !== 'dashboard' && activePage !== 'agent' && activePage !== 'outbound' && (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground fade-in">
             <IconWrapper icon={navigation.find(n => n.id === activePage)?.icon} />
             <h2 className="text-lg font-medium mt-4">{navigation.find(n => n.id === activePage)?.label}</h2>
