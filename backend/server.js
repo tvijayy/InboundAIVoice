@@ -46,11 +46,11 @@ app.post('/api/twilio/inbound', async (req, res) => {
         });
 
         const uvData = await uvResponse.json();
-        // If Ultravox rejected our API call, the joinUrl will crash the Twilio stream silently.
         if (!uvData.joinUrl) {
             console.error("Ultravox API failed to generate WebSocket:", uvData);
         }
         const joinUrl = uvData.joinUrl;
+        const ultravoxCallId = uvData.callId; // CAPTURE FOR SUMMARIES!
 
         // 3. SECURE LOGGING: Save the call instantly directly into your Supabase Database
         await supabase.from('calls').insert([{
@@ -58,7 +58,8 @@ app.post('/api/twilio/inbound', async (req, res) => {
             from_phone: callerPhone,
             to_phone: twilioPhone,
             status: 'active',
-            twilio_sid: callSid
+            twilio_sid: callSid,
+            ultravox_call_id: ultravoxCallId
         }]);
 
         // 4. Return Twilio XML (TwiML) instantly bridging the caller to the Ultravox WebSocket
@@ -110,6 +111,7 @@ app.post('/api/calls/outbound', async (req, res) => {
             console.error("Ultravox API failed to generate Outbound WebSocket:", uvData);
         }
         const joinUrl = uvData.joinUrl;
+        const ultravoxCallId = uvData.callId;
 
         // 2. Format the inline TwiML XML payload 
         const twiml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -127,7 +129,9 @@ app.post('/api/calls/outbound', async (req, res) => {
         const call = await twilioClient.calls.create({
             twiml: twiml,
             to: toPhone,
-            from: process.env.TWILIO_PHONE_NUMBER
+            from: process.env.TWILIO_PHONE_NUMBER,
+            statusCallback: 'https://saas-backend.xqnsvk.easypanel.host/api/twilio/status', // Tell Twilio to hit our server when call drops!
+            statusCallbackEvent: ['completed']
         });
 
         // SECURE LOGGING: Write the outbound call directly into your Supabase Data Table!
@@ -136,7 +140,8 @@ app.post('/api/calls/outbound', async (req, res) => {
             from_phone: process.env.TWILIO_PHONE_NUMBER,
             to_phone: toPhone,
             status: call.status,
-            twilio_sid: call.sid
+            twilio_sid: call.sid,
+            ultravox_call_id: ultravoxCallId
         }]);
 
         console.log(`Outbound Call Live - Status: ${call.status} - SID: ${call.sid}`);
@@ -162,6 +167,80 @@ app.get('/api/calls', async (req, res) => {
     } catch (err) {
         console.error("Dashboard Fetch Error:", err);
         res.status(500).json({ error: "Could not fetch database." });
+    }
+});
+
+// GET Agent Settings from Dashboard
+app.get('/api/agent', async (req, res) => {
+    try {
+        let { data: agentData, error } = await supabase.from('agent_settings').select('*').limit(1).single();
+        if (error || !agentData) {
+            // Provide a default structure if table is empty
+            agentData = { system_prompt: "You are an AI assistant.", voice_preset: "Mark", temperature: 0.3 };
+        }
+        res.json({ success: true, agent: agentData });
+    } catch (err) {
+        res.status(500).json({ error: "Could not fetch agent settings." });
+    }
+});
+
+// POST Agent Settings from Dashboard (Saving updates!)
+app.post('/api/agent', async (req, res) => {
+    try {
+        const { system_prompt, voice_preset, temperature } = req.body;
+        
+        // Upsert to the first basic row
+        const { data: existing } = await supabase.from('agent_settings').select('id').limit(1).single();
+        
+        if (existing && existing.id) {
+            await supabase.from('agent_settings').update({ system_prompt, voice_preset, temperature }).eq('id', existing.id);
+        } else {
+            await supabase.from('agent_settings').insert([{ system_prompt, voice_preset, temperature }]);
+        }
+        
+        res.json({ success: true, message: "Agent successfully updated globally!" });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: "Could not save agent settings." });
+    }
+});
+
+// Twilio Call Status Webhook (Hangs up, fetches Summary from Ultravox!)
+app.post('/api/twilio/status', async (req, res) => {
+    const callSid = req.body.CallSid;
+    const callDuration = req.body.CallDuration || 0;
+    const callStatus = req.body.CallStatus; // 'completed'
+
+    console.log(`Call Ended: ${callSid}. Waiting 5 seconds for Ultravox to generate Summary...`);
+    res.sendStatus(200); // Instantly reply to Twilio so it drops the connection cleanly.
+
+    // Background process: wait 8 seconds to ensure LLM has generated transcript/summary
+    if (callStatus === 'completed') {
+        setTimeout(async () => {
+            try {
+                // Find mapping row
+                const { data: callRow } = await supabase.from('calls').select('ultravox_call_id').eq('twilio_sid', callSid).single();
+                if (!callRow || !callRow.ultravox_call_id) return;
+
+                // Fetch data from Ultravox
+                const uvRes = await fetch(`https://api.ultravox.ai/api/calls/${callRow.ultravox_call_id}`, {
+                    headers: { 'X-API-Key': ULTRAVOX_API_KEY }
+                });
+                const uvData = await uvRes.json();
+
+                // Save to Supabase
+                await supabase.from('calls').update({
+                    status: 'completed',
+                    duration_seconds: callDuration,
+                    ai_summary: uvData.summary || "No summary available.",
+                    transcript: "Feature pending native Ultravox messages mapping."
+                }).eq('twilio_sid', callSid);
+                
+                console.log(`Successfully saved AI Summary for Call: ${callSid}`);
+            } catch (err) {
+                console.error("Failed capturing AI Summary in background:", err);
+            }
+        }, 8000); // 8 second buffer
     }
 });
 
