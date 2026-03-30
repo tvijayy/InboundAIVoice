@@ -162,19 +162,65 @@ export default function App() {
         )}
 
         {activePage === 'agent' && (
-          <div className="space-y-6 fade-in">
+          <div className="space-y-6 fade-in max-w-3xl mx-auto">
             <div>
               <h2 className="text-2xl font-bold">Agent Settings</h2>
               <p className="text-sm text-muted-foreground mt-1">Configure AI personality, opening line, and sensitivity</p>
             </div>
             
-            <div className="bg-card border border-border rounded-xl p-6">
-              <h3 className="font-semibold text-sm mb-4 border-b border-border pb-3">System Prompt</h3>
-              <textarea 
-                className="w-full bg-background border border-border rounded-lg p-3 font-mono text-[13px] text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 h-[300px]"
-                defaultValue="You are an inbound answering service answering calls sent from Twilio. Be highly professional."
-              />
-              <p className="text-xs text-muted-foreground mt-2">Saved directly to your Supabase Database using Zustand global state.</p>
+            <div className="bg-card border border-border rounded-xl p-6 shadow-2xl">
+              <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  const prompt = e.target.elements.prompt.value;
+                  const voice = e.target.elements.voice.value;
+                  const temp = e.target.elements.temp.value;
+                  
+                  const btn = document.getElementById('save-btn');
+                  btn.innerText = 'Saving...';
+                  try {
+                    const res = await fetch('https://saas-backend.xqnsvk.easypanel.host/api/agent', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ system_prompt: prompt, voice_preset: voice, temperature: parseFloat(temp) })
+                    });
+                    if (res.ok) {
+                        btn.innerText = 'Saved Successfully!';
+                        setTimeout(() => btn.innerText = 'Save Global Agent', 2000);
+                    }
+                  } catch (err) {
+                    alert('Error saving agent settings!');
+                    btn.innerText = 'Save Global Agent';
+                  }
+              }}>
+                <h3 className="font-semibold text-sm mb-4 border-b border-border pb-3">Global System Prompt</h3>
+                <textarea 
+                  name="prompt"
+                  className="w-full bg-background border border-border rounded-lg p-4 font-mono text-[13px] text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 h-[250px] resize-none"
+                  placeholder="You are the smart AI agent for Azlon AI Voice Platform..."
+                  required
+                />
+                
+                <div className="grid grid-cols-2 gap-4 mt-6">
+                    <div>
+                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Voice Preset</label>
+                        <select name="voice" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none">
+                            <option value="Mark">Mark (Professional Male)</option>
+                            <option value="Tanya">Tanya (Warm Female)</option>
+                            <option value="Adam">Adam (Energetic Male)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Temperature (0.1 - 1.0)</label>
+                        <input name="temp" type="number" step="0.1" max="1" min="0" defaultValue="0.3" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
+                    </div>
+                </div>
+
+                <div className="mt-8 flex justify-end">
+                    <button id="save-btn" type="submit" className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold px-6 py-2.5 rounded-lg text-sm shadow-lg transition-transform hover:-translate-y-0.5">
+                        Save Global Agent
+                    </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
