@@ -528,6 +528,52 @@ app.get('/api/appointments', async (req, res) => {
     }
 });
 
+// Sync ALL existing Cal.com bookings into our Supabase dashboard
+app.post('/api/appointments/sync', async (req, res) => {
+    try {
+        const { data: cal } = await supabase.from('integrations').select('*').eq('provider', 'calcom').single();
+        if (!cal || !cal.api_key) return res.status(400).json({ error: "Cal.com API key not configured. Please save it in the Calendar settings first." });
+
+        // Fetch all upcoming bookings from Cal.com
+        const calRes = await fetch(`https://api.cal.com/v1/bookings?apiKey=${cal.api_key}&status=upcoming`, {
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const calData = await calRes.json();
+
+        if (!calRes.ok) {
+            return res.status(400).json({ error: `Cal.com API error: ${calData.message || JSON.stringify(calData)}` });
+        }
+
+        const bookings = calData.bookings || [];
+        let synced = 0;
+
+        for (const booking of bookings) {
+            const attendee = booking.attendees?.[0] || {};
+            const bookingUid = booking.uid;
+            const startTime = booking.startTime;
+            const name = attendee.name || booking.title || 'Unknown';
+            const phone = attendee.phoneNumber || '';
+
+            // Check if we already have this booking in Supabase (avoid duplicates)
+            const { data: existing } = await supabase.from('appointments').select('id').eq('booking_uid', bookingUid).single();
+            if (!existing) {
+                await supabase.from('appointments').insert([{
+                    name, phone, start_time: startTime,
+                    booking_uid: bookingUid,
+                    source: 'calcom_sync',
+                    status: booking.status || 'confirmed'
+                }]);
+                synced++;
+            }
+        }
+
+        res.json({ success: true, message: `Sync complete. ${synced} new bookings imported from Cal.com. Total in Cal.com: ${bookings.length}.` });
+    } catch(err) {
+        console.error('Cal.com sync error:', err);
+        res.status(500).json({ error: err.message || "Sync failed." });
+    }
+});
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`AI Backend API running on port ${PORT}...`);
 });
