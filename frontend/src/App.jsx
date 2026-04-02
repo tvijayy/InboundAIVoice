@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { BarChart3, Calendar, Bot, Mic, Key, Phone, Users, PhoneOutgoing, Globe, Sparkles, Trash2, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
 import { cn } from './lib/utils';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://saas-backend.xqnsvk.easypanel.host';
 
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
