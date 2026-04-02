@@ -53,22 +53,22 @@ app.post('/api/twilio/inbound', async (req, res) => {
                 medium: { twilio: {} }, // CRITICAL: Tell Ultravox to use Twilio's audio stream format!
                 selectedTools: [
                     {
-                        toolName: "check_availability",
-                        toolDefinition: {
+                        temporaryTool: {
+                            modelToolName: "check_availability",
                             description: "Check the calendar for free available time slots on a specific date to prevent double-booking.",
-                            parameters: {
+                            dynamicParameters: {
                                 type: "object",
                                 properties: { target_date: { type: "string", description: "The target date to check in YYYY-MM-DD format" } },
                                 required: ["target_date"]
-                            }
-                        },
-                        http: { method: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/availability" }
+                            },
+                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/availability" }
+                        }
                     },
                     {
-                        toolName: "book_appointment",
-                        toolDefinition: {
+                        temporaryTool: {
+                            modelToolName: "book_appointment",
                             description: "Book an appointment for the caller on the calendar.",
-                            parameters: {
+                            dynamicParameters: {
                                 type: "object",
                                 properties: {
                                     start_time: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-10-04T10:00:00Z" },
@@ -76,15 +76,15 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                     phone: { type: "string", description: "Contact number" }
                                 },
                                 required: ["start_time", "name"]
-                            }
-                        },
-                        http: { method: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/book" }
+                            },
+                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/book" }
+                        }
                     },
                     {
-                        toolName: "update_appointment",
-                        toolDefinition: {
+                        temporaryTool: {
+                            modelToolName: "update_appointment",
                             description: "Reschedule or update an existing appointment to a new time. Requires caller verification.",
-                            parameters: {
+                            dynamicParameters: {
                                 type: "object",
                                 properties: {
                                     name: { type: "string", description: "First and last name used originally" },
@@ -92,24 +92,24 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                     new_start_time: { type: "string", description: "ISO 8601 datetime string of the new desired time slot" }
                                 },
                                 required: ["name", "phone", "new_start_time"]
-                            }
-                        },
-                        http: { method: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/update" }
+                            },
+                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/update" }
+                        }
                     },
                     {
-                        toolName: "delete_appointment",
-                        toolDefinition: {
+                        temporaryTool: {
+                            modelToolName: "delete_appointment",
                             description: "Cancel and delete an existing appointment. Strongly requires caller verification.",
-                            parameters: {
+                            dynamicParameters: {
                                 type: "object",
                                 properties: {
                                     name: { type: "string", description: "First and last name used originally" },
                                     phone: { type: "string", description: "Phone number used originally" }
                                 },
                                 required: ["name", "phone"]
-                            }
-                        },
-                        http: { method: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/delete" }
+                            },
+                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/delete" }
+                        }
                     }
                 ]
             })
@@ -183,22 +183,22 @@ app.post('/api/calls/outbound', async (req, res) => {
                 medium: { twilio: {} }, // CRITICAL: Tell Ultravox to use Twilio's audio stream format!
                 selectedTools: [
                     {
-                        toolName: "check_availability",
-                        toolDefinition: {
+                        temporaryTool: {
+                            modelToolName: "check_availability",
                             description: "Check the calendar for free available time slots on a specific date to prevent double-booking.",
-                            parameters: {
+                            dynamicParameters: {
                                 type: "object",
                                 properties: { target_date: { type: "string", description: "The target date to check in YYYY-MM-DD format" } },
                                 required: ["target_date"]
-                            }
-                        },
-                        http: { method: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/availability" }
+                            },
+                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/availability" }
+                        }
                     },
                     {
-                        toolName: "book_appointment",
-                        toolDefinition: {
+                        temporaryTool: {
+                            modelToolName: "book_appointment",
                             description: "Book an appointment for the caller on the calendar.",
-                            parameters: {
+                            dynamicParameters: {
                                 type: "object",
                                 properties: {
                                     start_time: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-10-04T10:00:00Z" },
@@ -206,9 +206,9 @@ app.post('/api/calls/outbound', async (req, res) => {
                                     phone: { type: "string", description: "Contact number" }
                                 },
                                 required: ["start_time", "name"]
-                            }
-                        },
-                        http: { method: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/book" }
+                            },
+                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/book" }
+                        }
                     }
                 ]
             })
