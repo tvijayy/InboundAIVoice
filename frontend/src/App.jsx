@@ -37,14 +37,19 @@ export default function App() {
 
   const saveIntegration = async (provider, api_key, meta_data = {}) => {
     try {
-      await fetch(`${API_BASE}/api/integrations`, {
+      const res = await fetch(`${API_BASE}/api/integrations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider, api_key, meta_data })
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       setIntegrations(prev => [...prev.filter(i => i.provider !== provider), { provider, api_key, meta_data }]);
       return true;
-    } catch(e) { return false; }
+    } catch(e) {
+      alert('Save failed: ' + e.message);
+      return false;
+    }
   };
 
   const fetchSlotsForDate = async (date) => {
@@ -206,11 +211,31 @@ export default function App() {
             <div className="flex justify-between items-start">
               <div>
                 <h2 className="text-2xl font-bold">Calendar & Booking Sync</h2>
-                <p className="text-sm text-muted-foreground mt-1">Live view of all AI-booked appointments from Cal.com</p>
+                <p className="text-sm text-muted-foreground mt-1">Live view of all AI-booked appointments — synced from Cal.com</p>
               </div>
-              <button onClick={() => fetchSlotsForDate(calendarDate)} className="flex items-center gap-2 text-xs border border-border px-3 py-1.5 rounded-lg hover:text-primary transition">
-                <RefreshCw size={12} /> Check Slots
-              </button>
+              <div className="flex gap-2">
+                <button onClick={() => fetchSlotsForDate(calendarDate)} className="flex items-center gap-2 text-xs border border-border px-3 py-1.5 rounded-lg hover:text-primary transition">
+                  <RefreshCw size={12} /> Check Free Slots
+                </button>
+                <button onClick={async () => {
+                  const btn = document.getElementById('calcom-sync-btn');
+                  btn.innerText = 'Syncing...';
+                  try {
+                    const res = await fetch(`${API_BASE}/api/appointments/sync`, { method: 'POST' });
+                    const data = await res.json();
+                    if (res.ok) {
+                      alert(data.message);
+                      // Refresh appointments after sync
+                      fetch(`${API_BASE}/api/appointments`).then(r=>r.json()).then(d=>{if(d.success)setAppointments(d.appointments||[])});
+                    } else {
+                      alert('Sync failed: ' + (data.error || 'Unknown error'));
+                    }
+                  } catch(e) { alert('Network error during sync'); }
+                  btn.innerText = '↓ Sync from Cal.com';
+                }} id="calcom-sync-btn" className="flex items-center gap-2 text-xs bg-primary text-white px-3 py-1.5 rounded-lg hover:bg-primary/90 transition font-medium">
+                  ↓ Sync from Cal.com
+                </button>
+              </div>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Calendar Grid */}
@@ -352,10 +377,17 @@ export default function App() {
                 e.preventDefault();
                 const btn = document.getElementById('save-agent-btn'); btn.innerText = 'Saving...';
                 try {
-                  await fetch(`${API_BASE}/api/agent`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  const res = await fetch(`${API_BASE}/api/agent`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ system_prompt: e.target.prompt.value, voice_preset: e.target.voice.value, temperature: parseFloat(e.target.temp.value) }) });
-                  btn.innerText = 'Saved!'; setTimeout(() => btn.innerText = 'Save Agent', 2000);
-                } catch { btn.innerText = 'Save Agent'; }
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+                  btn.innerText = 'Saved!';
+                  alert('Agent settings saved successfully!');
+                  setTimeout(() => btn.innerText = 'Save Agent', 2000);
+                } catch(err) {
+                  btn.innerText = 'Save Agent';
+                  alert('Save failed: ' + err.message + '\n\nBackend URL: ' + API_BASE);
+                }
               }}>
                 <h3 className="font-semibold text-sm mb-3 border-b border-border pb-3">Global System Prompt</h3>
                 <textarea name="prompt" defaultValue={agentSettings.system_prompt} className="w-full bg-background border border-border rounded-lg p-4 font-mono text-[13px] outline-none resize-none h-[220px] mb-4" placeholder="You are the smart AI agent for Azlon AI Voice Platform..." required />
@@ -412,9 +444,15 @@ export default function App() {
               <form onSubmit={async (e) => {
                 e.preventDefault();
                 const btn = document.getElementById('save-cred-btn'); btn.innerText = 'Saving...';
-                await saveIntegration('ultravox', e.target.uv_key.value);
-                await saveIntegration('twilio', e.target.tw_key.value, { sid: e.target.tw_sid.value, phone: e.target.tw_phone.value });
-                btn.innerText = 'Saved!'; setTimeout(() => btn.innerText = 'Store Credentials', 2000);
+                const ok1 = await saveIntegration('ultravox', e.target.uv_key.value);
+                const ok2 = await saveIntegration('twilio', e.target.tw_key.value, { sid: e.target.tw_sid.value, phone: e.target.tw_phone.value });
+                if (ok1 && ok2) {
+                  btn.innerText = 'Saved!';
+                  alert('Credentials saved successfully!');
+                  setTimeout(() => btn.innerText = 'Store Credentials', 2000);
+                } else {
+                  btn.innerText = 'Store Credentials';
+                }
               }} className="space-y-5">
                 <div>
                   <label className="block text-xs font-bold text-muted-foreground uppercase mb-2">Ultravox API Key</label>
