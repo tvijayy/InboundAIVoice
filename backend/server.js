@@ -61,11 +61,14 @@ app.post('/api/twilio/inbound', async (req, res) => {
                         temporaryTool: {
                             modelToolName: "check_availability",
                             description: "Check the calendar for free available time slots on a specific date to prevent double-booking.",
-                            dynamicParameters: {
-                                type: "object",
-                                properties: { target_date: { type: "string", description: "The target date to check in YYYY-MM-DD format" } },
-                                required: ["target_date"]
-                            },
+                            dynamicParameters: [
+                                {
+                                    name: "target_date",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "The target date to check in YYYY-MM-DD format" },
+                                    required: true
+                                }
+                            ],
                             http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/availability" }
                         }
                     },
@@ -73,15 +76,26 @@ app.post('/api/twilio/inbound', async (req, res) => {
                         temporaryTool: {
                             modelToolName: "book_appointment",
                             description: "Book an appointment for the caller on the calendar.",
-                            dynamicParameters: {
-                                type: "object",
-                                properties: {
-                                    start_time: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-10-04T10:00:00Z" },
-                                    name: { type: "string", description: "Full name of caller" },
-                                    phone: { type: "string", description: "Contact number" }
+                            dynamicParameters: [
+                                {
+                                    name: "start_time",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-10-04T10:00:00Z" },
+                                    required: true
                                 },
-                                required: ["start_time", "name"]
-                            },
+                                {
+                                    name: "name",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "Full name of caller" },
+                                    required: true
+                                },
+                                {
+                                    name: "phone",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "Contact number" },
+                                    required: false
+                                }
+                            ],
                             http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/book" }
                         }
                     },
@@ -89,15 +103,26 @@ app.post('/api/twilio/inbound', async (req, res) => {
                         temporaryTool: {
                             modelToolName: "update_appointment",
                             description: "Reschedule or update an existing appointment to a new time. Requires caller verification.",
-                            dynamicParameters: {
-                                type: "object",
-                                properties: {
-                                    name: { type: "string", description: "First and last name used originally" },
-                                    phone: { type: "string", description: "Phone number used originally" },
-                                    new_start_time: { type: "string", description: "ISO 8601 datetime string of the new desired time slot" }
+                            dynamicParameters: [
+                                {
+                                    name: "name",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "First and last name used originally" },
+                                    required: true
                                 },
-                                required: ["name", "phone", "new_start_time"]
-                            },
+                                {
+                                    name: "phone",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "Phone number used originally" },
+                                    required: true
+                                },
+                                {
+                                    name: "new_start_time",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "ISO 8601 datetime string of the new desired time slot" },
+                                    required: true
+                                }
+                            ],
                             http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/update" }
                         }
                     },
@@ -105,14 +130,20 @@ app.post('/api/twilio/inbound', async (req, res) => {
                         temporaryTool: {
                             modelToolName: "delete_appointment",
                             description: "Cancel and delete an existing appointment. Strongly requires caller verification.",
-                            dynamicParameters: {
-                                type: "object",
-                                properties: {
-                                    name: { type: "string", description: "First and last name used originally" },
-                                    phone: { type: "string", description: "Phone number used originally" }
+                            dynamicParameters: [
+                                {
+                                    name: "name",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "First and last name used originally" },
+                                    required: true
                                 },
-                                required: ["name", "phone"]
-                            },
+                                {
+                                    name: "phone",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "Phone number used originally" },
+                                    required: true
+                                }
+                            ],
                             http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/delete" }
                         }
                     }
@@ -191,11 +222,14 @@ app.post('/api/calls/outbound', async (req, res) => {
                         temporaryTool: {
                             modelToolName: "check_availability",
                             description: "Check the calendar for free available time slots on a specific date to prevent double-booking.",
-                            dynamicParameters: {
-                                type: "object",
-                                properties: { target_date: { type: "string", description: "The target date to check in YYYY-MM-DD format" } },
-                                required: ["target_date"]
-                            },
+                            dynamicParameters: [
+                                {
+                                    name: "target_date",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "The target date to check in YYYY-MM-DD format" },
+                                    required: true
+                                }
+                            ],
                             http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/availability" }
                         }
                     },
@@ -203,15 +237,26 @@ app.post('/api/calls/outbound', async (req, res) => {
                         temporaryTool: {
                             modelToolName: "book_appointment",
                             description: "Book an appointment for the caller on the calendar.",
-                            dynamicParameters: {
-                                type: "object",
-                                properties: {
-                                    start_time: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-10-04T10:00:00Z" },
-                                    name: { type: "string", description: "Full name of caller" },
-                                    phone: { type: "string", description: "Contact number" }
+                            dynamicParameters: [
+                                {
+                                    name: "start_time",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-10-04T10:00:00Z" },
+                                    required: true
                                 },
-                                required: ["start_time", "name"]
-                            },
+                                {
+                                    name: "name",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "Full name of caller" },
+                                    required: true
+                                },
+                                {
+                                    name: "phone",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "Contact number" },
+                                    required: false
+                                }
+                            ],
                             http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/book" }
                         }
                     }
