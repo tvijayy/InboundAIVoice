@@ -7,6 +7,11 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(cors());
 
+// Friendly greeting for the root URL so the browser doesn't show an error
+app.get('/', (req, res) => {
+    res.send('✅ Azlon AI Backend is Live & Running!');
+});
+
 const PORT = 8000;
 const ULTRAVOX_API_KEY = process.env.ULTRAVOX_API_KEY;
 
