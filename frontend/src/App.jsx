@@ -446,7 +446,9 @@ export default function App() {
                 const btn = document.getElementById('save-cred-btn'); btn.innerText = 'Saving...';
                 const ok1 = await saveIntegration('ultravox', e.target.uv_key.value);
                 const ok2 = await saveIntegration('twilio', e.target.tw_key.value, { sid: e.target.tw_sid.value, phone: e.target.tw_phone.value });
-                if (ok1 && ok2) {
+                const ok3 = await saveIntegration('calcom', e.target.cal_key.value, { eventId: e.target.cal_event.value });
+                
+                if (ok1 && ok2 && ok3) {
                   btn.innerText = 'Saved!';
                   alert('Credentials saved successfully!');
                   setTimeout(() => btn.innerText = 'Store Credentials', 2000);
@@ -463,6 +465,11 @@ export default function App() {
                   <input name="tw_sid" defaultValue={getIntegration('twilio').meta_data?.sid || ''} placeholder="Account SID" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
                   <input name="tw_key" defaultValue={getIntegration('twilio').api_key} type="password" placeholder="Auth Token" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
                   <input name="tw_phone" defaultValue={getIntegration('twilio').meta_data?.phone || ''} placeholder="Twilio Phone (+1...)" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
+                </div>
+                <div className="border-t border-border pt-5 space-y-4">
+                  <label className="block text-xs font-bold text-muted-foreground uppercase">Cal.com Configuration</label>
+                  <input name="cal_key" defaultValue={getIntegration('calcom').api_key} type="password" placeholder="Cal.com API Key (cal_live_...)" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
+                  <input name="cal_event" defaultValue={getIntegration('calcom').meta_data?.eventId || ''} placeholder="Event Type ID (e.g. 123456)" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
                 </div>
                 <div className="flex justify-end"><button id="save-cred-btn" type="submit" className="bg-primary text-white font-semibold px-6 py-2.5 rounded-lg text-sm">Store Credentials</button></div>
               </form>
