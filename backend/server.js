@@ -24,17 +24,26 @@ app.post('/api/twilio/inbound', async (req, res) => {
         const callSid = req.body.CallSid || "No_SID";
         console.log(`Inbound Call Received from: ${callerPhone}`);
 
-        // 1. Check database for Custom System Prompt
+        // 1. Fetch Integration Keys from Database
+        const { data: uvInt } = await supabase.from('integrations').select('*').eq('provider', 'ultravox').single();
+        const ACTIVE_ULTRAVOX_KEY = uvInt?.api_key || process.env.ULTRAVOX_API_KEY;
+
+        if (!ACTIVE_ULTRAVOX_KEY) {
+            console.error("Ultravox API key is completely missing. Add it in the Dashboard's API Credentials page.");
+            return res.status(500).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>The AI agent is not configured.</Say></Response>`);
+        }
+
+        // 2. Check database for Custom System Prompt
         const { data: agentData } = await supabase.from('agent_settings').select('*').limit(1).single();
         const fallbackPrompt = "You are the smart AI agent for Azlon AI Voice Platform. Keep answers extremely short, professional, and confident.";
         const finalPrompt = agentData?.system_prompt || fallbackPrompt;
 
-        // 1. Create a Call on Ultravox to get a secure WebSocket connect URL
+        // 3. Create a Call on Ultravox to get a secure WebSocket connect URL
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-API-Key': ULTRAVOX_API_KEY
+                'X-API-Key': ACTIVE_ULTRAVOX_KEY
             },
             body: JSON.stringify({
                 systemPrompt: finalPrompt,
@@ -151,12 +160,20 @@ app.post('/api/calls/outbound', async (req, res) => {
         
         console.log(`Initiating Outbound Call to: ${toPhone}`);
 
-        // 1. Create a specialized Outbound Ultravox session to construct the secure audio WebSocket
+        // 1. Fetch Integration Keys from Database
+        const { data: uvInt } = await supabase.from('integrations').select('*').eq('provider', 'ultravox').single();
+        const ACTIVE_ULTRAVOX_KEY = uvInt?.api_key || process.env.ULTRAVOX_API_KEY;
+
+        if (!ACTIVE_ULTRAVOX_KEY) {
+            return res.status(400).json({ error: "Missing Ultravox API Key. Set it in the Dashboard." });
+        }
+
+        // 2. Create a specialized Outbound Ultravox session
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'X-API-Key': ULTRAVOX_API_KEY
+                'X-API-Key': ACTIVE_ULTRAVOX_KEY
             },
             body: JSON.stringify({
                 systemPrompt: systemPrompt || "You are an outbound sales AI calling a lead. Be incredibly persuasive, warm, and brief.",
@@ -214,13 +231,22 @@ app.post('/api/calls/outbound', async (req, res) => {
     </Connect>
 </Response>`;
 
-        // 3. Directly command Twilio to physically dial the lead utilizing the SDK
-        const twilioClient = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+        // 4. Directly command Twilio to physically dial the lead
+        const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').single();
+        const TWILIO_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
+        const TWILIO_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
+        const TWILIO_PHONE = twInt?.meta_data?.phone || process.env.TWILIO_PHONE_NUMBER;
+
+        if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_PHONE) {
+            return res.status(400).json({ error: "Twilio credentials missing. Set them in the Dashboard." });
+        }
+
+        const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
         
         const call = await twilioClient.calls.create({
             twiml: twiml,
             to: toPhone,
-            from: process.env.TWILIO_PHONE_NUMBER,
+            from: TWILIO_PHONE,
             statusCallback: 'https://saas-backend.xqnsvk.easypanel.host/api/twilio/status', // Tell Twilio to hit our server when call drops!
             statusCallbackEvent: ['completed']
         });
@@ -352,9 +378,13 @@ app.post('/api/twilio/status', async (req, res) => {
                 const { data: callRow } = await supabase.from('calls').select('ultravox_call_id').eq('twilio_sid', callSid).single();
                 if (!callRow || !callRow.ultravox_call_id) return;
 
+                // Fetch Key
+                const { data: uvInt } = await supabase.from('integrations').select('*').eq('provider', 'ultravox').single();
+                const ACTIVE_ULTRAVOX_KEY = uvInt?.api_key || process.env.ULTRAVOX_API_KEY;
+
                 // Fetch data from Ultravox
                 const uvRes = await fetch(`https://api.ultravox.ai/api/calls/${callRow.ultravox_call_id}`, {
-                    headers: { 'X-API-Key': ULTRAVOX_API_KEY }
+                    headers: { 'X-API-Key': ACTIVE_ULTRAVOX_KEY }
                 });
                 const uvData = await uvRes.json();
 
