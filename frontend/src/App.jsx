@@ -784,7 +784,8 @@ export default function App() {
                      if(!num) { showToast('Enter a phone number','error'); return; }
                      try {
                         showToast('Dispatching manual call...', 'success');
-                        await fetch(`${API_BASE}/api/calls/outbound`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ to_phone: num, voice, goal }) });
+                        const res = await fetch(`${API_BASE}/api/calls/outbound`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ toPhone: num, voice, goal }) });
+                        if(!res.ok) throw new Error('Backend failed to dial');
                         showToast('Call initiated successfully!', 'success');
                      } catch(e) { showToast('Call dispatch failed','error'); }
                    }} className="w-full bg-primary hover:bg-primary/90 text-white font-semibold rounded-lg p-2.5 text-sm shadow shadow-primary/20 mt-1 transition">Dial Target</button>
