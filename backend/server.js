@@ -264,8 +264,33 @@ app.post('/api/calls/outbound', async (req, res) => {
     }
 });
 
-// Twilio Webhook (Hit ONLY when the human answers AND passes the Twilio trial prompt!)
+// Twilio Webhook (Hit instantly when they answer, but Twilio plays a 10s trial prompt!)
 app.post('/api/twilio/outbound-twiml', async (req, res) => {
+    try {
+        const toPhone = req.query.toPhone;
+        const reqVoice = req.query.voice;
+        const reqGoal = req.query.goal;
+
+        // Redirect to the connection endpoint to defer Ultravox token generation!
+        const serverBaseUrl = process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host";
+        const redirUrl = `${serverBaseUrl}/api/twilio/outbound-connect?toPhone=${encodeURIComponent(toPhone || '')}&voice=${encodeURIComponent(reqVoice || '')}&goal=${encodeURIComponent(reqGoal || '')}`;
+
+        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <!-- Pause 10 seconds to wait out the mandatory Twilio Trial message before making the AI talk -->
+    <Pause length="10"/>
+    <Redirect method="POST">${redirUrl}</Redirect>
+</Response>`;
+
+        res.set('Content-Type', 'text/xml');
+        res.send(twiml);
+    } catch (err) {
+        res.status(500).send('<Response><Say>Error</Say></Response>');
+    }
+});
+
+// Twilio Webhook Stage 2: Generates the actual AI token exactly when the connection starts!
+app.post('/api/twilio/outbound-connect', async (req, res) => {
     try {
         const toPhone = req.query.toPhone;
         const reqVoice = req.query.voice;
