@@ -14,6 +14,7 @@ export default function App() {
   const [leads, setLeads] = useState([]);
   const [knowledgeBase, setKnowledgeBase] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
+  const [reports, setReports] = useState(null);
   
   const [agentSettings, setAgentSettings] = useState({ system_prompt: '', voice_preset: 'Mark', temperature: 0.3, greeting_message: '', personality: 'professional' });
   const [integrations, setIntegrations] = useState([]);
@@ -21,6 +22,9 @@ export default function App() {
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [availableSlots, setAvailableSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
+  const [calendarModal, setCalendarModal] = useState(null);
+  const [viewSummaryModal, setViewSummaryModal] = useState(null);
+  const [manualLeadModal, setManualLeadModal] = useState(false);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -36,6 +40,7 @@ export default function App() {
     fetch(`${API_BASE}/api/agent`).then(r => r.json()).then(d => { if (d.success && d.agent) setAgentSettings(d.agent); }).catch(() => {});
     fetch(`${API_BASE}/api/integrations`).then(r => r.json()).then(d => { if (d.success) setIntegrations(d.integrations || []); }).catch(() => {});
     fetch(`${API_BASE}/api/appointments`).then(r => r.json()).then(d => { if (d.success) setAppointments(d.appointments || []); }).catch(() => {});
+    fetch(`${API_BASE}/api/reports`).then(r => r.json()).then(d => { if (d.success) setReports(d.metrics); }).catch(() => {});
   };
 
   useEffect(() => { fetchAll(); }, []);
@@ -105,6 +110,7 @@ export default function App() {
   const navigation = [
     { section: 'Overview' },
     { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
+    { id: 'reports', label: 'Reports', icon: Target },
     { id: 'calendar', label: 'Calendar', icon: Calendar },
     { section: 'Configuration' },
     { id: 'agent', label: 'Inbound Agent', icon: Bot },
@@ -243,35 +249,67 @@ export default function App() {
           </div>
         )}
 
+        {/* ── REPORTS ── */}
+        {activePage === 'reports' && (
+          <div className="space-y-6 fade-in">
+             <div className="flex justify-between items-start">
+               <div>
+                 <h2 className="text-2xl font-bold">Analytics & Reports</h2>
+                 <p className="text-sm text-muted-foreground mt-1">Live business metrics and conversions.</p>
+               </div>
+             </div>
+             {reports ? (
+               <div className="grid grid-cols-3 gap-6">
+                 <div className="bg-card border border-border rounded-xl p-5 shadow">
+                   <div className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Total Calls</div>
+                   <div className="text-4xl font-bold mt-3">{reports.totalCalls}</div>
+                   <div className="flex gap-4 mt-3 text-xs text-muted-foreground">
+                     <span className="bg-white/5 px-2 py-1 rounded">Inbound: {reports.inboundCalls}</span>
+                     <span className="bg-white/5 px-2 py-1 rounded">Outbound: {reports.outboundCalls}</span>
+                   </div>
+                 </div>
+                 <div className="bg-card border border-border rounded-xl p-5 shadow">
+                   <div className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Call Duration</div>
+                   <div className="text-4xl font-bold mt-3">{reports.totalMinutes} <span className="text-lg text-muted-foreground font-medium">mins</span></div>
+                 </div>
+                 <div className="bg-card border border-border rounded-xl p-5 shadow relative overflow-hidden">
+                   <div className="absolute top-0 right-0 p-4 opacity-10"><Target size={60} /></div>
+                   <div className="text-xs text-muted-foreground uppercase tracking-widest font-bold relative z-10">AI Bookings</div>
+                   <div className="text-4xl font-bold mt-3 text-primary relative z-10">{reports.bookedAppointments}</div>
+                 </div>
+                 <div className="col-span-3 bg-card border border-border rounded-xl p-6 shadow">
+                   <h3 className="font-bold text-sm tracking-wide">Call Sentiment Analysis</h3>
+                   <div className="flex w-full h-8 rounded-lg overflow-hidden shrink-0 mt-6">
+                     <div style={{width: `${reports.totalCalls ? (reports.sentiment.positive/reports.totalCalls)*100 : 0}%`}} className="bg-green-500 h-full flex items-center justify-center text-[10px] font-bold text-white transition-all">{reports.sentiment.positive > 0 && reports.sentiment.positive}</div>
+                     <div style={{width: `${reports.totalCalls ? (reports.sentiment.neutral/reports.totalCalls)*100 : 100}%`}} className="bg-muted h-full flex items-center justify-center text-[10px] font-bold text-white transition-all">{reports.sentiment.neutral > 0 && reports.sentiment.neutral}</div>
+                     <div style={{width: `${reports.totalCalls ? (reports.sentiment.negative/reports.totalCalls)*100 : 0}%`}} className="bg-red-500 h-full flex items-center justify-center text-[10px] font-bold text-white transition-all">{reports.sentiment.negative > 0 && reports.sentiment.negative}</div>
+                   </div>
+                   <div className="flex gap-4 mt-4 text-[11px] text-muted-foreground justify-center font-medium">
+                     <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>Positive</span>
+                     <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-muted"></span>Neutral</span>
+                     <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>Negative</span>
+                   </div>
+                 </div>
+               </div>
+             ) : (
+               <div className="text-center py-20 text-muted-foreground text-sm flex flex-col items-center gap-3">
+                 <RefreshCw className="animate-spin text-primary" size={24} /> Loading reports...
+               </div>
+             )}
+          </div>
+        )}
+
         {/* ── CALENDAR ── */}
         {activePage === 'calendar' && (
           <div className="space-y-6 fade-in">
             <div className="flex justify-between items-start">
               <div>
-                <h2 className="text-2xl font-bold">Calendar & Booking Sync</h2>
-                <p className="text-sm text-muted-foreground mt-1">Live view of all AI-booked appointments — synced from Cal.com</p>
+                <h2 className="text-2xl font-bold">Internal AI Calendar</h2>
+                <p className="text-sm text-muted-foreground mt-1">Live view of all AI-booked appointments</p>
               </div>
               <div className="flex gap-2">
-                <button onClick={() => fetchSlotsForDate(calendarDate)} className="flex items-center gap-2 text-xs border border-border px-3 py-1.5 rounded-lg hover:text-primary transition">
+                <button onClick={() => fetchSlotsForDate(calendarDate)} className="flex items-center gap-2 text-xs border border-border px-3 py-1.5 rounded-lg hover:text-primary transition bg-card shadow-sm">
                   <RefreshCw size={12} /> Check Free Slots
-                </button>
-                <button onClick={async () => {
-                  const btn = document.getElementById('calcom-sync-btn');
-                  btn.innerText = 'Syncing...';
-                  try {
-                    const res = await fetch(`${API_BASE}/api/appointments/sync`, { method: 'POST' });
-                    const data = await res.json();
-                    if (res.ok) {
-                      alert(data.message);
-                      // Refresh appointments after sync
-                      fetch(`${API_BASE}/api/appointments`).then(r=>r.json()).then(d=>{if(d.success)setAppointments(d.appointments||[])});
-                    } else {
-                      alert('Sync failed: ' + (data.error || 'Unknown error'));
-                    }
-                  } catch(e) { alert('Network error during sync'); }
-                  btn.innerText = '↓ Sync from Cal.com';
-                }} id="calcom-sync-btn" className="flex items-center gap-2 text-xs bg-primary text-white px-3 py-1.5 rounded-lg hover:bg-primary/90 transition font-medium">
-                  ↓ Sync from Cal.com
                 </button>
               </div>
             </div>
@@ -337,7 +375,20 @@ export default function App() {
                     <h3 className="font-semibold text-sm">
                       {calendarDate.toLocaleDateString('default', { month: 'short', day: 'numeric' })}
                     </h3>
-                    <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-full uppercase tracking-wider">Live Sync</span>
+                    <div className="flex gap-2">
+                      <button onClick={async () => {
+                         const dStr = calendarDate.toISOString().split('T')[0];
+                         const currArr = agentSettings?.non_working_dates || [];
+                         const isHoliday = currArr.includes(dStr);
+                         const nextArr = isHoliday ? currArr.filter(x => x !== dStr) : [...currArr, dStr];
+                         const updatedSettings = {...agentSettings, non_working_dates: nextArr};
+                         setAgentSettings(updatedSettings);
+                         await fetch(`${API_BASE}/api/agent`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(updatedSettings) });
+                      }} className={cn("text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider font-bold border transition-colors", (agentSettings?.non_working_dates || []).includes(calendarDate.toISOString().split('T')[0]) ? "bg-red-500/20 text-red-500 border-red-500/20" : "bg-white/5 border-border hover:bg-white/10 text-muted-foreground")}>
+                        {(agentSettings?.non_working_dates || []).includes(calendarDate.toISOString().split('T')[0]) ? "Holiday" : "Mark Holiday"}
+                      </button>
+                      <button onClick={() => setCalendarModal({ date: calendarDate })} className="text-[9px] bg-primary text-white border border-primary px-2 py-0.5 rounded-full uppercase tracking-wider font-bold hover:bg-primary/90 transition-colors shadow shadow-primary/20">+ Book</button>
+                    </div>
                   </div>
                   {appointmentsForDate(calendarDate).length === 0 ? (
                     <div className="text-center py-6 text-xs text-muted-foreground">No appointments on this day</div>
@@ -356,26 +407,45 @@ export default function App() {
                   )}
                 </div>
 
+                {/* Business Hours UI */}
                 <div className="bg-card border border-border rounded-xl p-5 shadow-xl">
-                  <h3 className="font-semibold text-sm mb-4 border-b border-border pb-3">Cal.com Integration</h3>
-                  <form onSubmit={async (e) => {
-                    e.preventDefault();
-                    const btn = e.target.querySelector('button[type=submit]');
-                    btn.innerText = 'Saving...';
-                    await saveIntegration('calcom', e.target.cal_key.value, { eventId: e.target.event_id.value });
-                    btn.innerText = 'Saved!';
-                    setTimeout(() => btn.innerText = 'Save', 2000);
-                  }} className="space-y-3">
-                    <div>
-                      <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">API Key</label>
-                      <input name="cal_key" defaultValue={getIntegration('calcom').api_key} type="password" placeholder="cal_live_..." className="w-full bg-background border border-border rounded-lg p-2 text-xs outline-none" />
+                  <h3 className="font-semibold text-sm mb-4 border-b border-border pb-3">Business hours</h3>
+                  <div className="space-y-4">
+                    <div className="flex gap-4">
+                      <div className="flex-1">
+                        <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">From</label>
+                        <input type="time" value={agentSettings.open_time || '09:00'} onChange={e => setAgentSettings({...agentSettings, open_time: e.target.value})} className="w-full bg-background border border-border rounded-lg p-2 text-xs outline-none focus:ring-1 focus:ring-primary" />
+                      </div>
+                      <div className="flex-1">
+                        <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Until</label>
+                        <input type="time" value={agentSettings.close_time || '18:00'} onChange={e => setAgentSettings({...agentSettings, close_time: e.target.value})} className="w-full bg-background border border-border rounded-lg p-2 text-xs outline-none focus:ring-1 focus:ring-primary" />
+                      </div>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Event Type ID</label>
-                      <input name="event_id" defaultValue={getIntegration('calcom').meta_data?.eventId || ''} placeholder="123456" className="w-full bg-background border border-border rounded-lg p-2 text-xs outline-none" />
+                      <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-2">Active Days</label>
+                      <div className="flex flex-wrap gap-2">
+                        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => {
+                          const isActive = Array.isArray(agentSettings.working_days) ? agentSettings.working_days.includes(day) : ['Mon','Tue','Wed','Thu','Fri'].includes(day);
+                          return (
+                            <button key={day} onClick={() => {
+                              const curr = Array.isArray(agentSettings.working_days) ? agentSettings.working_days : ['Mon','Tue','Wed','Thu','Fri'];
+                              const next = isActive ? curr.filter(d => d !== day) : [...curr, day];
+                              setAgentSettings({...agentSettings, working_days: next});
+                            }} className={cn("px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all", isActive ? "bg-primary text-white shadow-md shadow-primary/20" : "bg-white/5 text-muted-foreground hover:bg-white/10 border border-border")}>{day}</button>
+                          );
+                        })}
+                      </div>
                     </div>
-                    <button type="submit" className="w-full bg-primary text-white text-xs font-semibold py-2 rounded-lg">Save</button>
-                  </form>
+                    <button onClick={async (e) => {
+                       const btn = e.target;
+                       btn.innerText = 'Saving...';
+                       try {
+                         await fetch(`${API_BASE}/api/agent`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(agentSettings) });
+                         btn.innerText = 'Saved!';
+                         setTimeout(() => btn.innerText = 'Save Settings', 2000);
+                       } catch(err) {} 
+                    }} className="w-full bg-primary text-white text-xs font-semibold py-2 rounded-lg mt-2 shadow flex items-center justify-center">Save Settings</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -533,22 +603,26 @@ export default function App() {
                 <table className="w-full text-left text-sm whitespace-nowrap">
                   <thead>
                     <tr className="border-b border-border bg-sidebar/50">
+                      <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Date & Time</th>
+                      <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Caller Name</th>
                       <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Number</th>
                       <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Direction</th>
                       <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Duration</th>
-                      <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider w-[400px]">Full Summary</th>
-                      <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sentiment</th>
-                      <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
+                      <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">Summary</th>
+                      <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">Sentiment</th>
+                      <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/50">
                     {callLogs.map((c, i) => (
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="py-4 px-5 text-xs text-muted-foreground">{new Date(c.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
+                        <td className="py-4 px-5 text-xs font-medium">{c.caller_name || 'Unknown'}</td>
                         <td className="py-4 px-5 font-mono text-primary text-xs">{c.direction === 'inbound' ? c.from_phone : c.to_phone}</td>
-                        <td className="py-4 px-5 capitalize text-xs tracking-wide">{c.direction}</td>
-                        <td className="py-4 px-5 text-xs">{c.duration_seconds ? `${c.duration_seconds}s` : '—'}</td>
-                        <td className="py-4 px-5 text-xs text-muted-foreground whitespace-normal min-w-[300px] leading-relaxed">
-                          {c.ai_summary || 'No summary generated.'}
+                        <td className="py-4 px-5 capitalize text-[11px] tracking-wide text-muted-foreground">{c.direction}</td>
+                        <td className="py-4 px-5 text-xs font-mono">{c.duration_seconds ? `${c.duration_seconds}s` : '—'}</td>
+                        <td className="py-4 px-5 text-center">
+                          <button onClick={() => setViewSummaryModal(c)} className="bg-white/5 hover:bg-white/10 text-xs px-3 py-1.5 rounded-full border border-border transition-colors">View Data</button>
                         </td>
                         <td className="py-4 px-5">
                            {c.sentiment === 'Positive' ? <span className="bg-green-500/10 text-green-400 px-2.5 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider">Positive</span> : 
@@ -567,7 +641,7 @@ export default function App() {
                         </td>
                       </tr>
                     ))}
-                    {callLogs.length === 0 && <tr><td colSpan="6" className="text-center py-12 text-muted-foreground text-xs">No calls logged yet</td></tr>}
+                    {callLogs.length === 0 && <tr><td colSpan="8" className="text-center py-12 text-muted-foreground text-xs">No calls logged yet</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -682,8 +756,8 @@ export default function App() {
               <label className="block text-xs font-bold text-muted-foreground uppercase mb-2">Campaign Setup</label>
               
               <div className="grid grid-cols-2 gap-4">
-                <input placeholder="Campaign Name (e.g. Past Clients Follow-up)" className="w-full bg-background border border-border p-3 rounded-lg text-sm outline-none" required />
-                <select className="w-full bg-background border border-border p-3 rounded-lg text-sm outline-none">
+                <input name="campaign_name" placeholder="Campaign Name (e.g. Past Clients Follow-up)" className="w-full bg-background border border-border p-3 rounded-lg text-sm outline-none" required />
+                <select name="campaign_voice" className="w-full bg-background border border-border p-3 rounded-lg text-sm outline-none">
                   <option value="Mark">🇺🇸 American Male (Standard)</option>
                   <option value="Tanya">🇺🇸 American Female (Friendly)</option>
                   <option value="Adam">🇬🇧 British Male (Formal)</option>
@@ -693,13 +767,36 @@ export default function App() {
                 </select>
               </div>
               
-              <div className="border-2 border-dashed border-border rounded-xl p-10 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-white/[0.02] transition">
-                 <Globe size={32} className="text-muted-foreground mb-3" />
-                 <h4 className="font-semibold text-sm">Upload CSV File</h4>
-                 <p className="text-xs text-muted-foreground mt-1">File must include a "Phone" column.</p>
+              <div>
+                <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Primary Campaign Goal</label>
+                <textarea id="campaign_goal" placeholder="What is the objective of this outbound call? e.g. 'Get them to book a viewing for next week.'" className="w-full bg-background border border-border p-3 rounded-lg text-sm outline-none h-20 resize-none"></textarea>
               </div>
-              
-              <button onClick={() => showToast('CSV Uploader backend is still indexing. Wait for next patch.', 'error')} className="w-full bg-primary hover:bg-primary/90 text-white font-semibold rounded-lg p-3.5 flex justify-center items-center gap-2 shadow-lg shadow-primary/20"><Sparkles size={18}/> Launch Outbound Campaign</button>
+
+              <div className="grid grid-cols-2 gap-4 pt-2">
+                <div className="border border-border rounded-xl p-6 flex flex-col justify-center gap-3 bg-sidebar/20">
+                   <h4 className="font-semibold text-sm">Targeted Manual Dial</h4>
+                   <p className="text-xs text-muted-foreground leading-relaxed">Call a single specific lead right now via Azlon AI.</p>
+                   <input id="manual_dial_phone" placeholder="Enter Phone (+1...)" className="w-full bg-background border border-border p-3 rounded-lg text-sm outline-none focus:border-primary transition" />
+                   <button onClick={async () => {
+                     const num = document.getElementById('manual_dial_phone').value;
+                     const voice = document.querySelector('select[name="campaign_voice"]').value;
+                     const goal = document.getElementById('campaign_goal').value;
+                     if(!num) { showToast('Enter a phone number','error'); return; }
+                     try {
+                        showToast('Dispatching manual call...', 'success');
+                        await fetch(`${API_BASE}/api/calls/outbound`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ to_phone: num, voice, goal }) });
+                        showToast('Call initiated successfully!', 'success');
+                     } catch(e) { showToast('Call dispatch failed','error'); }
+                   }} className="w-full bg-primary hover:bg-primary/90 text-white font-semibold rounded-lg p-2.5 text-sm shadow shadow-primary/20 mt-1 transition">Dial Target</button>
+                </div>
+                
+                <div onClick={() => showToast('CSV Uploader backend is still indexing. Wait for next patch.', 'error')} className="border-2 border-dashed border-border rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-white/[0.02] transition">
+                   <Globe size={32} className="text-muted-foreground mb-3" />
+                   <h4 className="font-semibold text-sm">Upload CSV File</h4>
+                   <p className="text-xs text-muted-foreground mt-1">Batch outbound calling.</p>
+                   <div className="mt-4 bg-muted px-4 py-1.5 rounded-full text-xs font-semibold text-foreground">Bulk Connect</div>
+                </div>
+              </div>
             </div>
 
             <div className="mt-8">
@@ -717,6 +814,110 @@ export default function App() {
           </div>
         )}
 
+      {/* ── MODALS ── */}
+      {viewSummaryModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center fade-in p-4">
+          <div className="bg-card w-full max-w-2xl rounded-2xl shadow-2xl border border-border flex flex-col max-h-[85vh]">
+            <div className="p-6 border-b border-border flex justify-between items-center bg-sidebar/50 rounded-t-2xl">
+              <div>
+                <h3 className="font-bold text-lg">Call Summary & Transcript</h3>
+                <p className="text-xs text-muted-foreground font-mono mt-1">{viewSummaryModal.from_phone || viewSummaryModal.to_phone}</p>
+              </div>
+              <button onClick={() => setViewSummaryModal(null)} className="text-muted-foreground hover:text-white bg-white/5 p-2 rounded-lg transition-colors"><XCircle size={20}/></button>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-6">
+              <div>
+                <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">AI Executed Summary</h4>
+                <div className="bg-background rounded-xl p-5 border border-border text-sm leading-relaxed text-foreground whitespace-pre-wrap shadow-inner relative">
+                  {viewSummaryModal.ai_summary || 'No summary was generated or the call failed.'}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {calendarModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center fade-in p-4">
+          <div className="bg-card w-full max-w-md rounded-2xl shadow-2xl border border-border flex flex-col">
+            <div className="p-6 border-b border-border flex justify-between items-center bg-sidebar/50 rounded-t-2xl">
+              <div>
+                 <h3 className="font-bold text-lg">Manual Booking</h3>
+                 <p className="text-xs text-muted-foreground font-mono mt-1">Date: {calendarModal.date.toLocaleDateString()}</p>
+              </div>
+              <button onClick={() => setCalendarModal(null)} className="text-muted-foreground hover:text-white bg-white/5 p-2 rounded-lg transition-colors"><XCircle size={20}/></button>
+            </div>
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              const btn = e.target.querySelector('button[type=submit]');
+              btn.innerText = 'Booking...';
+              const dateStr = calendarModal.date.toISOString().split('T')[0];
+              const timeStr = e.target.time.value;
+              const start_time = `${dateStr}T${timeStr}:00.000Z`;
+              try {
+                await fetch(`${API_BASE}/api/tools/book`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ start_time, name: e.target.name.value, phone: e.target.phone.value })
+                });
+                alert('Saved physically to internal calendar!');
+                setCalendarModal(null);
+                fetch(`${API_BASE}/api/appointments`).then(r=>r.json()).then(d=>{if(d.success)setAppointments(d.appointments||[])});
+              } catch(err) { alert('Failed to book.'); btn.innerText = 'Book Now'; }
+            }} className="p-6 space-y-4">
+               <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Time</label>
+                  <input name="time" type="time" required className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" />
+               </div>
+               <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Client Name</label>
+                  <input name="name" required placeholder="John Doe" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" />
+               </div>
+               <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Phone Number</label>
+                  <input name="phone" required placeholder="+1234567890" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" />
+               </div>
+               <button type="submit" className="w-full bg-primary text-white font-bold py-3 rounded-lg shadow-lg shadow-primary/20 hover:bg-primary/90 mt-4 transition-all">Record Booking Interally</button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {manualLeadModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center fade-in p-4">
+          <div className="bg-card w-full max-w-md rounded-2xl shadow-2xl border border-border flex flex-col">
+            <div className="p-6 border-b border-border flex justify-between items-center bg-sidebar/50 rounded-t-2xl">
+              <h3 className="font-bold text-lg">Add CRM Target</h3>
+              <button onClick={() => setManualLeadModal(false)} className="text-muted-foreground hover:text-white bg-white/5 p-2 rounded-lg transition-colors"><XCircle size={20}/></button>
+            </div>
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                await fetch(`${API_BASE}/api/leads`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ 
+                    name: e.target.name.value, 
+                    phone: e.target.phone.value,
+                    email: e.target.email.value,
+                    segment: e.target.segment.value,
+                    source: 'Manual Upload'
+                  })
+                });
+                alert('Lead saved into database!');
+                setManualLeadModal(false);
+                fetch(`${API_BASE}/api/leads`).then(r=>r.json()).then(d=>{if(d.success)setLeads(d.leads||[])});
+              } catch(err) { alert('Failed.'); }
+            }} className="p-6 space-y-4">
+               <div><label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Name</label><input name="name" required placeholder="Full Name" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" /></div>
+               <div><label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Phone Number</label><input name="phone" required placeholder="+1..." className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" /></div>
+               <div><label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Email</label><input name="email" placeholder="client@company.com" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" /></div>
+               <div><label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Segment/Tags</label><input name="segment" placeholder="VIP, Follow-up, Cold, Hot" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" /></div>
+               <button type="submit" className="w-full bg-primary text-white font-bold py-3 rounded-lg shadow-lg shadow-primary/20 mt-4 transition-all hover:bg-primary/90">Save Manual Target</button>
+            </form>
+          </div>
+        </div>
+      )}
       </main>
     </div>
   );
