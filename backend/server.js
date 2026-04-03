@@ -239,6 +239,7 @@ app.post('/api/calls/outbound', async (req, res) => {
 
         let finalPrompt = (systemPrompt || agentData?.system_prompt || "You are an outbound sales AI calling a lead. Be incredibly persuasive, warm, and brief.") + contextText;
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
+        if (req.body.goal) finalPrompt += `\n\n[PRIMARY MISSION GOAL]: ${req.body.goal}`;
         finalPrompt += "\n\nIMPORTANT INSTRUCTION: Call the 'log_call_outcome' tool when the conversation is naturally concluding to record sentiment and status.";
 
         const finalVoice = req.body.voice || agentData?.voice_preset || "Mark";
@@ -542,20 +543,51 @@ app.post('/api/tools/availability', async (req, res) => {
     try {
         const { target_date } = req.body;
         console.log("Ultravox AI triggered check_availability for:", target_date);
-        const { data: cal } = await supabase.from('integrations').select('*').eq('provider', 'calcom').single();
-        if (!cal || !cal.api_key) return res.json({ available_slots: "Calendar not configured." });
-
-        const eventTypeId = cal.meta_data?.eventId || 123456;
-        const response = await fetch(`https://api.cal.com/v1/slots?apiKey=${cal.api_key}&eventTypeId=${eventTypeId}&startTime=${target_date}T00:00:00.000Z&endTime=${target_date}T23:59:59.000Z`);
-        const data = await response.json();
         
-        let freeSlots = [];
-        if (data && data.slots && data.slots[target_date]) {
-             freeSlots = data.slots[target_date].map(s => s.time);
+        let { data: agentData } = await supabase.from('agent_settings').select('*').limit(1).single();
+        if (!agentData) {
+             agentData = { working_days: ["Mon", "Tue", "Wed", "Thu", "Fri"], open_time: '09:00', close_time: '18:00', non_working_dates: [] };
         }
+        
+        const targetDateObj = new Date(target_date + 'T12:00:00Z');
+        const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const targetDayName = days[targetDateObj.getUTCDay()];
+        
+        // 1. Check if date is manually blocked
+        const nonWorkingDates = agentData.non_working_dates || [];
+        if (nonWorkingDates.includes(target_date)) {
+            return res.json({ available_slots: "Business is closed on this specific date." });
+        }
+        
+        // 2. Check if day of week is supported
+        const workingDays = Array.isArray(agentData.working_days) ? agentData.working_days : ["Mon", "Tue", "Wed", "Thu", "Fri"];
+        if (!workingDays.includes(targetDayName)) {
+            return res.json({ available_slots: "Business is closed on " + targetDayName + "s." });
+        }
+        
+        // 3. Generate all possible slots (1 hour intervals for simplicity)
+        let openHour = parseInt((agentData.open_time || '09:00').split(':')[0]);
+        let closeHour = parseInt((agentData.close_time || '18:00').split(':')[0]);
+        
+        let allSlots = [];
+        for (let h = openHour; h < closeHour; h++) {
+            let hourStr = h.toString().padStart(2, '0') + ":00:00.000Z";
+            allSlots.push(`${target_date}T${hourStr}`);
+        }
+        
+        // 4. Fetch existing appointments for that day to find conflicts
+        const { data: existingApps } = await supabase
+            .from('appointments')
+            .select('start_time')
+            .gte('start_time', `${target_date}T00:00:00Z`)
+            .lte('start_time', `${target_date}T23:59:59Z`);
+            
+        let bookedSlots = existingApps ? existingApps.map(a => new Date(a.start_time).toISOString()) : [];
+        let freeSlots = allSlots.filter(slot => !bookedSlots.includes(slot));
+        
         res.json({ available_slots: freeSlots.length > 0 ? freeSlots : "No free slots on this date." });
     } catch (e) {
-        console.error(e);
+        console.error("Availability Check Error:", e);
         res.json({ available_slots: "Error retrieving slots." });
     }
 });
@@ -564,38 +596,20 @@ app.post('/api/tools/book', async (req, res) => {
     try {
         const { start_time, name, phone } = req.body;
         console.log("Ultravox AI triggered book_appointment:", req.body);
-        let bookingUid = null;
-
-        const { data: cal } = await supabase.from('integrations').select('*').eq('provider', 'calcom').single();
-        if (cal && cal.api_key) {
-            const eventTypeId = cal.meta_data?.eventId || 123456;
-            try {
-                const response = await fetch(`https://api.cal.com/v1/bookings?apiKey=${cal.api_key}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        eventTypeId: parseInt(eventTypeId),
-                        start: start_time,
-                        responses: { name: name || "AI Caller", email: "placeholder@ai.com", phone: phone || "" },
-                        metadata: {},
-                        timeZone: "America/New_York",
-                        language: "en"
-                    })
-                });
-                const responseData = await response.json();
-                if (responseData && responseData.booking && responseData.booking.uid) {
-                    bookingUid = responseData.booking.uid;
-                }
-            } catch (e) {
-                console.error("Cal.com physical upstream failed but saving locally anyway", e);
-            }
-        }
-
-        // Sync to Supabase Dashboard immediately
-        await supabase.from('appointments').insert([{ name, phone, start_time, booking_uid: bookingUid }]);
-        res.json({ result: "Appointment officially booked!" });
+        
+        const startDate = new Date(start_time);
+        const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour duration
+        
+        await supabase.from('appointments').insert([{ 
+            name: name || "AI Caller", 
+            phone: phone || "", 
+            start_time: startDate.toISOString(), 
+            end_time: endDate.toISOString(),
+            status: 'Confirmed'
+        }]);
+        res.json({ result: "Appointment officially booked into the internal system!" });
     } catch(err) {
-        console.error(err);
+        console.error("Booking Error:", err);
         res.status(500).json({ result: "Failed to book appointment" });
     }
 });
@@ -793,11 +807,49 @@ app.get('/api/campaigns', async (req, res) => {
 
 app.post('/api/campaigns', async (req, res) => {
     try {
-        const { name, total_calls } = req.body;
-        const { data } = await supabase.from('campaigns').insert([{ name, total_calls, status: 'running' }]).select();
+        const { name, total_calls, goal } = req.body;
+        const { data } = await supabase.from('campaigns').insert([{ name, total_calls, goal, status: 'running' }]).select();
         res.json({ success: true, campaign: data[0] });
     } catch(err) {
         res.status(500).json({ error: "API Failure" });
+    }
+});
+
+app.get('/api/reports', async (req, res) => {
+    try {
+        const { data: calls } = await supabase.from('calls').select('*');
+        const { data: leads } = await supabase.from('leads').select('id');
+        const { data: apps } = await supabase.from('appointments').select('*');
+
+        const totalCalls = calls ? calls.length : 0;
+        const totalDuration = calls ? calls.reduce((acc, c) => acc + parseInt(c.duration_seconds || 0), 0) : 0;
+        
+        let positive = 0; let negative = 0; let neutral = 0;
+
+        if (calls) {
+            calls.forEach(c => {
+                const s = (c.sentiment || '').toLowerCase();
+                if (s === 'positive') positive++;
+                else if (s === 'negative') negative++;
+                else neutral++;
+            });
+        }
+
+        res.json({ 
+            success: true, 
+            metrics: {
+                totalCalls,
+                inboundCalls: calls ? calls.filter(c => c.direction === 'inbound').length : 0,
+                outboundCalls: calls ? calls.filter(c => c.direction === 'outbound').length : 0,
+                totalMinutes: Math.floor(totalDuration / 60) || 0,
+                sentiment: { positive, negative, neutral },
+                totalLeads: leads ? leads.length : 0,
+                bookedAppointments: apps ? apps.length : 0
+            }
+        });
+    } catch (err) {
+        console.error("Reports API Error:", err);
+        res.status(500).json({ error: "Could not generate reports." });
     }
 });
 
