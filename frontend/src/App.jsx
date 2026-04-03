@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Calendar, Bot, Mic, Key, Phone, Users, PhoneOutgoing, Globe, Sparkles, Trash2, RefreshCw, CheckCircle, XCircle, Target, BookOpen, Megaphone, Bell } from 'lucide-react';
+import { BarChart3, Calendar, Bot, Mic, Key, Phone, Users, PhoneOutgoing, Globe, Sparkles, Trash2, RefreshCw, CheckCircle, XCircle, Target, BookOpen, Megaphone, Bell, Sun, Moon } from 'lucide-react';
 import { cn } from './lib/utils';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://saas-backend.xqnsvk.easypanel.host';
@@ -157,7 +157,7 @@ export default function App() {
           </div>
           {/* Theme Toggle */}
           <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="text-muted-foreground hover:text-foreground">
-             <Globe size={16} />
+             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
         </div>
         <nav className="flex-1 overflow-y-auto py-4">
@@ -680,7 +680,18 @@ export default function App() {
             <div><h2 className="text-2xl font-bold">Outbound Voice Campaigns</h2><p className="text-sm text-muted-foreground mt-1">Upload a CSV list to automatically dial contacts sequentially</p></div>
             <div className="bg-card border border-border rounded-xl p-6 shadow-xl space-y-4">
               <label className="block text-xs font-bold text-muted-foreground uppercase mb-2">Campaign Setup</label>
-              <input placeholder="Campaign Name (e.g. Past Clients Follow-up)" className="w-full bg-background border border-border p-3 rounded-lg text-sm outline-none" required />
+              
+              <div className="grid grid-cols-2 gap-4">
+                <input placeholder="Campaign Name (e.g. Past Clients Follow-up)" className="w-full bg-background border border-border p-3 rounded-lg text-sm outline-none" required />
+                <select className="w-full bg-background border border-border p-3 rounded-lg text-sm outline-none">
+                  <option value="Mark">🇺🇸 American Male (Standard)</option>
+                  <option value="Tanya">🇺🇸 American Female (Friendly)</option>
+                  <option value="Adam">🇬🇧 British Male (Formal)</option>
+                  <option value="Emily">🇬🇧 British Female (Soft)</option>
+                  <option value="Priya">🇮🇳 Indian Female (English)</option>
+                  <option value="Rahul">🇮🇳 Indian Male (English)</option>
+                </select>
+              </div>
               
               <div className="border-2 border-dashed border-border rounded-xl p-10 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-white/[0.02] transition">
                  <Globe size={32} className="text-muted-foreground mb-3" />
