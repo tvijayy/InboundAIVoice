@@ -180,6 +180,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
             console.error("Ultravox API failed to generate WebSocket:", uvData);
         }
         const joinUrl = uvData.joinUrl;
+        const safeJoinUrl = joinUrl ? joinUrl.replace(/&/g, '&amp;') : '';
         const ultravoxCallId = uvData.callId; // CAPTURE FOR SUMMARIES!
 
         // 3. SECURE LOGGING: Save the call instantly directly into your Supabase Database
@@ -196,7 +197,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
         const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="${joinUrl}">
+        <Stream url="${safeJoinUrl}">
             <Parameter name="myCustomMetadata" value="InboundCall"/>
         </Stream>
     </Connect>
@@ -322,13 +323,14 @@ app.post('/api/calls/outbound', async (req, res) => {
             console.error("Ultravox API failed to generate Outbound WebSocket:", uvData);
         }
         const joinUrl = uvData.joinUrl;
+        const safeJoinUrl = joinUrl ? joinUrl.replace(/&/g, '&amp;') : '';
         const ultravoxCallId = uvData.callId;
 
         // 2. Format the inline TwiML XML payload 
         const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="${joinUrl}">
+        <Stream url="${safeJoinUrl}">
             <Parameter name="myCustomMetadata" value="Outbound Sales Call"/>
         </Stream>
     </Connect>
