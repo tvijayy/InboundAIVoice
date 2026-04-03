@@ -38,10 +38,22 @@ app.post('/api/twilio/inbound', async (req, res) => {
             return res.status(500).send(`<?xml version="1.0" encoding="UTF-8"?><Response><Say>The AI agent is not configured.</Say></Response>`);
         }
 
-        // 2. Check database for Custom System Prompt
+        // 2. Check database for Custom System Prompt and settings
         const { data: agentData } = await supabase.from('agent_settings').select('*').limit(1).single();
         const fallbackPrompt = "You are the smart AI agent for Azlon AI Voice Platform. Keep answers extremely short, professional, and confident.";
-        const finalPrompt = agentData?.system_prompt || fallbackPrompt;
+        
+        // 2.5 Load Knowledge Base automatically
+        const { data: kbDocs } = await supabase.from('knowledge_base').select('content').eq('status', 'Active');
+        let contextText = "";
+        if (kbDocs && kbDocs.length > 0) {
+            contextText = "\n\nCOMPANY KNOWLEDGE BASE (Use this to answer questions):\n" + kbDocs.map(k => k.content).join("\n---\n");
+        }
+
+        let finalPrompt = (agentData?.system_prompt || fallbackPrompt) + contextText;
+        
+        // Emphasize personality and rules
+        if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
+        finalPrompt += "\n\nIMPORTANT INSTRUCTION: Call the 'log_call_outcome' tool when the conversation is naturally concluding to record sentiment and status.";
 
         // 3. Create a Call on Ultravox to get a secure WebSocket connect URL
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
@@ -146,6 +158,18 @@ app.post('/api/twilio/inbound', async (req, res) => {
                             ],
                             http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/delete" }
                         }
+                    },
+                    {
+                        temporaryTool: {
+                            modelToolName: "log_call_outcome",
+                            description: "Evaluate the sentiment (Positive/Negative/Neutral) and the status (Resolved/Follow Up/Booked/Missed) right before hanging up.",
+                            dynamicParameters: [
+                                { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The caller's exact phone number" }, required: true },
+                                { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Positive, Negative, or Neutral" }, required: true },
+                                { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
+                            ],
+                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/log_outcome" }
+                        }
                     }
                 ]
             })
@@ -204,6 +228,21 @@ app.post('/api/calls/outbound', async (req, res) => {
             return res.status(400).json({ error: "Missing Ultravox API Key. Set it in the Dashboard." });
         }
 
+        const { data: agentData } = await supabase.from('agent_settings').select('*').limit(1).single();
+        
+        // Load Knowledge Base mapped context automatically
+        const { data: kbDocs } = await supabase.from('knowledge_base').select('content').eq('status', 'Active');
+        let contextText = "";
+        if (kbDocs && kbDocs.length > 0) {
+            contextText = "\n\nCOMPANY KNOWLEDGE BASE (Use this to answer questions):\n" + kbDocs.map(k => k.content).join("\n---\n");
+        }
+
+        let finalPrompt = (systemPrompt || agentData?.system_prompt || "You are an outbound sales AI calling a lead. Be incredibly persuasive, warm, and brief.") + contextText;
+        if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
+        finalPrompt += "\n\nIMPORTANT INSTRUCTION: Call the 'log_call_outcome' tool when the conversation is naturally concluding to record sentiment and status.";
+
+        const finalVoice = req.body.voice || agentData?.voice_preset || "Mark";
+
         // 2. Create a specialized Outbound Ultravox session
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
             method: 'POST',
@@ -212,11 +251,12 @@ app.post('/api/calls/outbound', async (req, res) => {
                 'X-API-Key': ACTIVE_ULTRAVOX_KEY
             },
             body: JSON.stringify({
-                systemPrompt: systemPrompt || "You are an outbound sales AI calling a lead. Be incredibly persuasive, warm, and brief.",
-                voice: "Mark", // You can change this voice dynamically
-                temperature: 0.3,
-                firstSpeaker: "FIRST_SPEAKER_AGENT", // Agent speaks first!
-                medium: { twilio: {} }, // CRITICAL: Tell Ultravox to use Twilio's audio stream format!
+                systemPrompt: finalPrompt,
+                voice: finalVoice,
+                temperature: agentData?.temperature || 0.3,
+                firstSpeaker: "FIRST_SPEAKER_AGENT",
+                firstSpeakerMessage: req.body.greeting || agentData?.greeting_message || undefined,
+                medium: { twilio: {} },
                 selectedTools: [
                     {
                         temporaryTool: {
@@ -258,6 +298,18 @@ app.post('/api/calls/outbound', async (req, res) => {
                                 }
                             ],
                             http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/book" }
+                        }
+                    },
+                    {
+                        temporaryTool: {
+                            modelToolName: "log_call_outcome",
+                            description: "Evaluate the sentiment (Positive/Negative/Neutral) and the status (Resolved/Follow Up/Booked/Missed) right before hanging up.",
+                            dynamicParameters: [
+                                { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The caller's exact phone number" }, required: true },
+                                { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Positive, Negative, or Neutral" }, required: true },
+                                { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
+                            ],
+                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/log_outcome" }
                         }
                     }
                 ]
@@ -498,8 +550,8 @@ app.post('/api/tools/availability', async (req, res) => {
         const data = await response.json();
         
         let freeSlots = [];
-        if (data && data.data && data.data.slots && data.data.slots[target_date]) {
-             freeSlots = data.data.slots[target_date].map(s => s.time);
+        if (data && data.slots && data.slots[target_date]) {
+             freeSlots = data.slots[target_date].map(s => s.time);
         }
         res.json({ available_slots: freeSlots.length > 0 ? freeSlots : "No free slots on this date." });
     } catch (e) {
@@ -598,6 +650,30 @@ app.post('/api/tools/delete', async (req, res) => {
     }
 });
 
+app.post('/api/tools/log_outcome', async (req, res) => {
+    try {
+        const { phone, sentiment, status } = req.body;
+        console.log("Ultravox AI triggered log_call_outcome for:", phone, sentiment, status);
+        
+        // Find the most recent active or completed call for this phone number
+        const { data: calls } = await supabase
+            .from('calls')
+            .select('id, to_phone, from_phone')
+            .or(`from_phone.eq.${phone},to_phone.eq.${phone}`)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (calls && calls.length > 0) {
+            await supabase.from('calls').update({ sentiment, call_status: status }).eq('id', calls[0].id);
+        }
+        
+        res.json({ result: "Outcome logged successfully." });
+    } catch(err) {
+        console.error("Error logging outcome:", err);
+        res.status(500).json({ result: "Failed to log outcome" });
+    }
+});
+
 app.get('/api/appointments', async (req, res) => {
     try {
         const { data: appointments, error } = await supabase.from('appointments').select('*').order('start_time', { ascending: true });
@@ -651,6 +727,77 @@ app.post('/api/appointments/sync', async (req, res) => {
     } catch(err) {
         console.error('Cal.com sync error:', err);
         res.status(500).json({ error: err.message || "Sync failed." });
+    }
+});
+
+// --- ADVANCED CRM ENDPOINTS ---
+
+app.get('/api/leads', async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('leads').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+        res.json({ success: true, leads: data || [] });
+    } catch(err) {
+        res.status(500).json({ error: "API Failure" });
+    }
+});
+
+app.post('/api/leads', async (req, res) => {
+    try {
+        const { name, phone, email, ai_context, segment, source } = req.body;
+        const { data } = await supabase.from('leads').insert([{ name, phone, email, ai_context, segment, source }]).select();
+        res.json({ success: true, lead: data[0] });
+    } catch(err) {
+        res.status(500).json({ error: "API Failure" });
+    }
+});
+
+app.get('/api/knowledge_base', async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('knowledge_base').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+        res.json({ success: true, docs: data || [] });
+    } catch(err) {
+        res.status(500).json({ error: "API Failure" });
+    }
+});
+
+app.post('/api/knowledge_base', async (req, res) => {
+    try {
+        const { title, content } = req.body;
+        const { data } = await supabase.from('knowledge_base').insert([{ title, content, status: 'Active' }]).select();
+        res.json({ success: true, doc: data[0] });
+    } catch(err) {
+        res.status(500).json({ error: "API Failure" });
+    }
+});
+
+app.delete('/api/knowledge_base/:id', async (req, res) => {
+    try {
+        await supabase.from('knowledge_base').delete().eq('id', req.params.id);
+        res.json({ success: true });
+    } catch(err) {
+        res.status(500).json({ error: "API Failure" });
+    }
+});
+
+app.get('/api/campaigns', async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('campaigns').select('*').order('created_at', { ascending: false });
+        if (error) throw error;
+        res.json({ success: true, campaigns: data || [] });
+    } catch(err) {
+        res.status(500).json({ error: "API Failure" });
+    }
+});
+
+app.post('/api/campaigns', async (req, res) => {
+    try {
+        const { name, total_calls } = req.body;
+        const { data } = await supabase.from('campaigns').insert([{ name, total_calls, status: 'running' }]).select();
+        res.json({ success: true, campaign: data[0] });
+    } catch(err) {
+        res.status(500).json({ error: "API Failure" });
     }
 });
 
