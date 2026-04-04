@@ -881,7 +881,7 @@ app.post('/api/campaigns/csv-launch', async (req, res) => {
         const contacts = [];
         for (let i = startIdx; i < lines.length; i++) {
             const parts = lines[i].split(',').map(p => p.trim().replace(/"/g, ''));
-            // Try to find a phone-like value (starts with + or contains digits)
+            // Try to find a phone-like value (digits, optionally starting with +)
             let phone = null;
             let name = null;
             for (const part of parts) {
@@ -892,6 +892,10 @@ app.post('/api/campaigns/csv-launch', async (req, res) => {
                 }
             }
             if (phone) {
+                // Auto-prepend + if the client didn't include it (avoids Excel formula issues)
+                if (!phone.startsWith('+')) {
+                    phone = '+' + phone;
+                }
                 contacts.push({ phone, name: name || 'Unknown' });
             }
         }
