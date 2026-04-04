@@ -368,7 +368,7 @@ export default function App() {
                       Free Slots — {calendarDate.toLocaleDateString()}
                     </h4>
                     {loadingSlots ? (
-                      <div className="text-xs text-muted-foreground">Loading available slots from Cal.com...</div>
+                      <div className="text-xs text-muted-foreground italic">Fetching available time slots...</div>
                     ) : (
                       <div className="flex flex-wrap gap-2">
                         {availableSlots.map((slot, i) => (
@@ -382,7 +382,7 @@ export default function App() {
                 )}
               </div>
 
-              {/* Right Panel: Appointments for selected date + Cal.com config */}
+              {/* Right Panel: Appointments for selected date + Manual Controls */}
               <div className="space-y-4">
                 <div className="bg-card border border-border rounded-xl p-5 shadow-xl">
                   <div className="flex items-center justify-between mb-4 border-b border-border pb-3">
@@ -468,7 +468,7 @@ export default function App() {
             <div className="bg-card border border-border rounded-xl shadow-xl">
               <div className="p-4 border-b border-border flex items-center justify-between">
                 <h3 className="font-semibold text-sm">All AI-Booked Appointments</h3>
-                <button onClick={() => fetch(`${API_BASE}/api/appointments`).then(r=>r.json()).then(d=>{if(d.success)setAppointments(d.appointments||[])})} className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"><RefreshCw size={11}/> Sync</button>
+                <button onClick={() => fetchAll()} className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"><RefreshCw size={11}/> Sync Live</button>
               </div>
               <div className="p-4">
                 <table className="w-full text-left text-sm">
@@ -574,11 +574,10 @@ export default function App() {
                 const btn = document.getElementById('save-cred-btn'); btn.innerText = 'Saving...';
                 const ok1 = await saveIntegration('ultravox', e.target.uv_key.value);
                 const ok2 = await saveIntegration('twilio', e.target.tw_key.value, { sid: e.target.tw_sid.value, phone: e.target.tw_phone.value });
-                const ok3 = await saveIntegration('calcom', e.target.cal_key.value, { eventId: e.target.cal_event.value });
                 
-                if (ok1 && ok2 && ok3) {
+                if (ok1 && ok2) {
                   btn.innerText = 'Saved!';
-                  alert('Credentials saved successfully!');
+                  showToast('Credentials updated successfully!', 'success');
                   setTimeout(() => btn.innerText = 'Store Credentials', 2000);
                 } else {
                   btn.innerText = 'Store Credentials';
@@ -594,10 +593,9 @@ export default function App() {
                   <input name="tw_key" defaultValue={getIntegration('twilio').api_key} type="password" placeholder="Auth Token" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
                   <input name="tw_phone" defaultValue={getIntegration('twilio').meta_data?.phone || ''} placeholder="Twilio Phone (+1...)" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
                 </div>
-                <div className="border-t border-border pt-5 space-y-4">
-                  <label className="block text-xs font-bold text-muted-foreground uppercase">Cal.com Configuration</label>
-                  <input name="cal_key" defaultValue={getIntegration('calcom').api_key} type="password" placeholder="Cal.com API Key (cal_live_...)" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
-                  <input name="cal_event" defaultValue={getIntegration('calcom').meta_data?.eventId || ''} placeholder="Event Type ID (e.g. 123456)" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
+                <div className="p-4 bg-primary/5 rounded-xl border border-primary/20">
+                  <p className="text-[11px] font-semibold text-primary">Integration Auto-Sync Active</p>
+                  <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">Your calendar appointments and contact CRM are automatically synchronized with the AI voice agent in real-time. Use the Lead CRM tab to manage bulk contacts.</p>
                 </div>
                 <div className="flex justify-end"><button id="save-cred-btn" type="submit" className="bg-primary text-white font-semibold px-6 py-2.5 rounded-lg text-sm">Store Credentials</button></div>
               </form>
@@ -1025,19 +1023,20 @@ export default function App() {
               e.preventDefault();
               const btn = e.target.querySelector('button[type=submit]');
               btn.innerText = 'Booking...';
-              const dateStr = calendarModal.date.toISOString().split('T')[0];
+              const dateStr = calendarModal.date.toLocaleDateString('en-CA'); // YYYY-MM-DD
               const timeStr = e.target.time.value;
-              const start_time = `${dateStr}T${timeStr}:00.000Z`;
+              const start_time = `${dateStr}T${timeStr}:00+05:30`;
               try {
-                await fetch(`${API_BASE}/api/tools/book`, {
+                const res = await fetch(`${API_BASE}/api/appointments/manual`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ start_time, name: e.target.name.value, phone: e.target.phone.value })
                 });
-                alert('Saved physically to internal calendar!');
+                if(!res.ok) throw new Error('Booking failed');
+                showToast('Appointment successfully booked!', 'success');
                 setCalendarModal(null);
-                fetch(`${API_BASE}/api/appointments`).then(r=>r.json()).then(d=>{if(d.success)setAppointments(d.appointments||[])});
-              } catch(err) { alert('Failed to book.'); btn.innerText = 'Book Now'; }
+                fetchAll();
+              } catch(err) { showToast('Booking failed. Check details.','error'); btn.innerText = 'Book Now'; }
             }} className="p-6 space-y-4">
                <div>
                   <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Time</label>
