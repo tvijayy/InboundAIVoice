@@ -548,12 +548,12 @@ export default function App() {
                   <div>
                     <label className="block text-xs font-bold text-muted-foreground uppercase mb-2">Voice Model</label>
                     <select name="voice" defaultValue={agentSettings.voice_preset} className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none">
-                      <option value="Mark">🇺🇸 American Male (Standard)</option>
-                      <option value="Tanya">🇺🇸 American Female (Friendly)</option>
-                      <option value="Adam">🇬🇧 British Male (Formal)</option>
-                      <option value="Emily">🇬🇧 British Female (Soft)</option>
-                      <option value="Priya">🇮🇳 Indian Female (English)</option>
-                      <option value="Rahul">🇮🇳 Indian Male (English)</option>
+                      <option value="Mark">🇺🇸 Mark (Standard Male)</option>
+                      <option value="Alice">🇺🇸 Alice (Professional Female)</option>
+                      <option value="Jessica">🇺🇸 Jessica (Warm Female)</option>
+                      <option value="Kelsey">🇬🇧 Kelsey (Soft British Female)</option>
+                      <option value="Priya">🇮🇳 Priya (Clear Indian Female)</option>
+                      <option value="Lulu">🌍 Lulu (Casual Female)</option>
                     </select>
                   </div>
                   <div>
@@ -775,12 +775,12 @@ export default function App() {
               <div className="grid grid-cols-2 gap-4">
                 <input name="campaign_name" placeholder="Campaign Name (e.g. Past Clients Follow-up)" className="w-full bg-background border border-border p-3 rounded-lg text-sm outline-none" required />
                 <select name="campaign_voice" className="w-full bg-background border border-border p-3 rounded-lg text-sm outline-none">
-                  <option value="Mark">🇺🇸 American Male (Standard)</option>
-                  <option value="Tanya">🇺🇸 American Female (Friendly)</option>
-                  <option value="Adam">🇬🇧 British Male (Formal)</option>
-                  <option value="Emily">🇬🇧 British Female (Soft)</option>
-                  <option value="Priya">🇮🇳 Indian Female (English)</option>
-                  <option value="Rahul">🇮🇳 Indian Male (English)</option>
+                  <option value="Mark">🇺🇸 Mark (Standard Male)</option>
+                  <option value="Alice">🇺🇸 Alice (Professional Female)</option>
+                  <option value="Jessica">🇺🇸 Jessica (Warm Female)</option>
+                  <option value="Kelsey">🇬🇧 Kelsey (Soft British Female)</option>
+                  <option value="Priya">🇮🇳 Priya (Clear Indian Female)</option>
+                  <option value="Lulu">🌍 Lulu (Casual Female)</option>
                 </select>
               </div>
               
