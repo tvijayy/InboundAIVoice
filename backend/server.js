@@ -51,11 +51,15 @@ app.post('/api/twilio/inbound', async (req, res) => {
 
         let finalPrompt = (agentData?.system_prompt || fallbackPrompt) + contextText;
         
-        const todayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // YYYY-MM-DD
-        finalPrompt += `\n\nCALENDAR RULES: You are strictly bound by the business calendar. You operate in Indian Standard Time (IST, UTC+05:30). Today's date is ${todayISO}. Current time is ${nowIST}. 
+        const nowIST = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const todayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
         
-        STRICT PROTOCOL:
-        1. ALWAYS call 'check_availability' before suggesting ANY time to a caller.
+        finalPrompt += `\n\nCALENDAR CONTEXT: You operate strictly in IST (UTC+05:30). 
+        Current detailed time is ${nowIST}. 
+        Today's ISO date is ${todayISO}.
+        
+        STRICT RULES:
+        1. ALWAYS call 'check_availability' before suggest ANY time to a caller.
         2. DO NOT book appointments outside of the business hours or on holidays listed in the calendar.
         3. When booking, ALWAYS use the +05:30 offset in ISO format (Example: 2026-04-08T15:00:00+05:30 for 3 PM IST).
         4. If a caller asks to update or cancel, you MUST verify their details using the 'appointments' list provided in context.`;
@@ -303,11 +307,14 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         let finalPrompt = (agentData?.system_prompt || "You are an outbound sales AI calling a lead. Be incredibly persuasive, warm, and brief.") + contextText;
         
         // Add timezone context for outbound calls too
-        const nowIST_out = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+        const nowIST_out = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
         const todayISO_out = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-        finalPrompt += `\n\nCALENDAR RULES: You are strictly bound by the business calendar. You operate in IST (UTC+05:30). Today is ${todayISO_out}, Current time is ${nowIST_out}. 
         
-        STRICT PROTOCOL:
+        finalPrompt += `\n\nCALENDAR CONTEXT: You operate strictly in IST (UTC+05:30). 
+        Current detailed time is ${nowIST_out}. 
+        Today's ISO date is ${todayISO_out}.
+        
+        STRICT RULES:
         1. ALWAYS call 'check_availability' before suggesting ANY time to a lead.
         2. DO NOT book outside of business hours or on holidays.
         3. ALWAYS use +05:30 offset. Example: 2026-04-08T15:00:00+05:30.
