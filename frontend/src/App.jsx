@@ -53,6 +53,15 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Auto-refresh campaign stats every 10 seconds when viewing campaigns
+  useEffect(() => {
+    if (activePage !== 'campaigns') return;
+    const interval = setInterval(() => {
+      fetch(`${API_BASE}/api/campaigns`).then(r => r.json()).then(d => { if (d?.success) setCampaigns(d.campaigns); }).catch(() => {});
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [activePage]);
+
   const getIntegration = (provider) => integrations.find(i => i.provider === provider) || { api_key: '', meta_data: {} };
 
   const saveIntegration = async (provider, api_key, meta_data = {}) => {
@@ -791,25 +800,115 @@ export default function App() {
                    }} className="w-full bg-primary hover:bg-primary/90 text-white font-semibold rounded-lg p-2.5 text-sm shadow shadow-primary/20 mt-1 transition">Dial Target</button>
                 </div>
                 
-                <div onClick={() => showToast('CSV Uploader backend is still indexing. Wait for next patch.', 'error')} className="border-2 border-dashed border-border rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-white/[0.02] transition">
+                <div className="border-2 border-dashed border-border rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-white/[0.02] transition relative">
                    <Globe size={32} className="text-muted-foreground mb-3" />
                    <h4 className="font-semibold text-sm">Upload CSV File</h4>
                    <p className="text-xs text-muted-foreground mt-1">Batch outbound calling.</p>
-                   <div className="mt-4 bg-muted px-4 py-1.5 rounded-full text-xs font-semibold text-foreground">Bulk Connect</div>
+                   <input
+                     type="file"
+                     accept=".csv,.txt"
+                     className="absolute inset-0 opacity-0 cursor-pointer"
+                     onChange={async (e) => {
+                       const file = e.target.files[0];
+                       if (!file) return;
+                       const campaignNameEl = document.querySelector('input[name="campaign_name"]');
+                       const campaignName = campaignNameEl?.value;
+                       if (!campaignName) {
+                         showToast('Enter a Campaign Name first before uploading CSV.', 'error');
+                         e.target.value = '';
+                         return;
+                       }
+                       const voice = document.querySelector('select[name="campaign_voice"]')?.value || 'Mark';
+                       const goal = document.getElementById('campaign_goal')?.value || '';
+                       
+                       const reader = new FileReader();
+                       reader.onload = async (evt) => {
+                         const csvText = evt.target.result;
+                         try {
+                           showToast('Parsing CSV and launching campaign...', 'success');
+                           const res = await fetch(`${API_BASE}/api/campaigns/csv-launch`, {
+                             method: 'POST',
+                             headers: { 'Content-Type': 'application/json' },
+                             body: JSON.stringify({ csvText, campaignName: campaignName, voice, goal })
+                           });
+                           const data = await res.json();
+                           if (data.success) {
+                             showToast(data.message, 'success');
+                             fetchAll();
+                             if (campaignNameEl) campaignNameEl.value = '';
+                           } else {
+                             showToast(data.error || 'Failed to launch campaign.', 'error');
+                           }
+                         } catch(err) {
+                           showToast('Upload failed. Check backend.', 'error');
+                         }
+                       };
+                       reader.readAsText(file);
+                       e.target.value = '';
+                     }}
+                   />
+                   <div className="mt-4 bg-primary/20 text-primary px-4 py-1.5 rounded-full text-xs font-semibold">Bulk Connect</div>
                 </div>
               </div>
             </div>
 
             <div className="mt-8">
-              <h3 className="font-semibold text-sm mb-4">Live Campaigns</h3>
-              <div className="space-y-3">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-sm">Live Campaigns</h3>
+                <button onClick={fetchAll} className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition"><RefreshCw size={12} /> Refresh</button>
+              </div>
+              <div className="space-y-4">
                  {campaigns.map((c, i) => (
-                    <div key={i} className="bg-card border border-border p-4 rounded-xl flex justify-between items-center">
-                       <div><h4 className="font-medium">{c.name}</h4><p className="text-xs text-muted-foreground mt-0.5">Calls: {c.total_calls} | Configured by Azlon backend</p></div>
-                       <span className="bg-green-500/10 text-green-400 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider">{c.status}</span>
+                    <div key={i} className="bg-card border border-border rounded-xl shadow-md overflow-hidden">
+                       <div className="p-4 flex justify-between items-center border-b border-border bg-sidebar/30">
+                          <div>
+                            <h4 className="font-semibold text-sm">{c.name}</h4>
+                            <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{c.goal ? `Goal: ${c.goal.substring(0,60)}...` : 'No goal set'}</p>
+                          </div>
+                          <span className={cn(
+                            "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
+                            c.status === 'running' ? 'bg-blue-500/10 text-blue-400' :
+                            c.status === 'completed' ? 'bg-green-500/10 text-green-400' :
+                            c.status === 'failed' ? 'bg-red-500/10 text-red-400' :
+                            'bg-yellow-500/10 text-yellow-400'
+                          )}>{c.status === 'running' ? '● Live' : c.status}</span>
+                       </div>
+                       <div className="grid grid-cols-3 sm:grid-cols-6 gap-0 text-center">
+                          <div className="p-3 border-r border-border">
+                            <p className="text-lg font-bold text-foreground">{c.total_calls || 0}</p>
+                            <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">Total</p>
+                          </div>
+                          <div className="p-3 border-r border-border">
+                            <p className="text-lg font-bold text-blue-400">{c.answered || 0}</p>
+                            <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">Dialed</p>
+                          </div>
+                          <div className="p-3 border-r border-border">
+                            <p className="text-lg font-bold text-yellow-400">{c.pending || 0}</p>
+                            <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">Pending</p>
+                          </div>
+                          <div className="p-3 border-r border-border">
+                            <p className="text-lg font-bold text-green-400">{c.positive || 0}</p>
+                            <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">Positive</p>
+                          </div>
+                          <div className="p-3 border-r border-border">
+                            <p className="text-lg font-bold text-red-400">{c.declined || 0}</p>
+                            <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">Declined</p>
+                          </div>
+                          <div className="p-3">
+                            <p className="text-lg font-bold text-orange-400">{c.failed || 0}</p>
+                            <p className="text-[9px] text-muted-foreground uppercase tracking-wider font-semibold">Failed</p>
+                          </div>
+                       </div>
+                       {c.status === 'running' && (
+                         <div className="px-4 pb-3">
+                           <div className="w-full bg-muted rounded-full h-1.5 mt-1">
+                             <div className="bg-primary h-1.5 rounded-full transition-all duration-500" style={{ width: `${c.total_calls > 0 ? ((c.answered || 0) / c.total_calls * 100) : 0}%` }}></div>
+                           </div>
+                         </div>
+                       )}
                     </div>
                  ))}
-                 {campaigns.length === 0 && <div className="text-xs text-muted-foreground text-center py-6">No campaigns running.</div>}
+                 {campaigns.length === 0 && <div className="text-xs text-muted-foreground text-center py-6 bg-card border border-border rounded-xl">No campaigns created yet. Upload a CSV or create one manually.</div>}
               </div>
             </div>
           </div>
