@@ -839,11 +839,163 @@ app.get('/api/campaigns', async (req, res) => {
 
 app.post('/api/campaigns', async (req, res) => {
     try {
-        const { name, total_calls, goal } = req.body;
-        const { data } = await supabase.from('campaigns').insert([{ name, total_calls, goal, status: 'running' }]).select();
+        const { name, total_calls, goal, voice } = req.body;
+        const { data } = await supabase.from('campaigns').insert([{ name, total_calls, goal, voice: voice || 'Mark', status: 'running', pending: total_calls || 0 }]).select();
         res.json({ success: true, campaign: data[0] });
     } catch(err) {
         res.status(500).json({ error: "API Failure" });
+    }
+});
+
+// PATCH campaign stats (increment counters)
+app.patch('/api/campaigns/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updates = req.body; // e.g. { answered: 5, positive: 2 }
+        const { data, error } = await supabase.from('campaigns').update(updates).eq('id', id).select();
+        if (error) throw error;
+        res.json({ success: true, campaign: data[0] });
+    } catch(err) {
+        res.status(500).json({ error: "API Failure" });
+    }
+});
+
+// CSV BULK UPLOAD + AUTO LAUNCH CAMPAIGN
+app.post('/api/campaigns/csv-launch', async (req, res) => {
+    try {
+        const { csvText, campaignName, voice, goal } = req.body;
+        if (!csvText || !campaignName) {
+            return res.status(400).json({ error: "Missing CSV data or campaign name." });
+        }
+
+        // Parse CSV: accept lines with phone numbers (with optional name column)
+        const lines = csvText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        
+        // Detect header row
+        let startIdx = 0;
+        const firstLine = lines[0].toLowerCase();
+        if (firstLine.includes('phone') || firstLine.includes('name') || firstLine.includes('number')) {
+            startIdx = 1; // skip header
+        }
+
+        const contacts = [];
+        for (let i = startIdx; i < lines.length; i++) {
+            const parts = lines[i].split(',').map(p => p.trim().replace(/"/g, ''));
+            // Try to find a phone-like value (starts with + or contains digits)
+            let phone = null;
+            let name = null;
+            for (const part of parts) {
+                if (part.match(/^\+?\d[\d\s\-()]{6,}$/)) {
+                    phone = part.replace(/[\s\-()]/g, '');
+                } else if (part.length > 1 && !phone) {
+                    name = part;
+                }
+            }
+            if (phone) {
+                contacts.push({ phone, name: name || 'Unknown' });
+            }
+        }
+
+        if (contacts.length === 0) {
+            return res.status(400).json({ error: "No valid phone numbers found in CSV." });
+        }
+
+        // Create the campaign in Supabase
+        const { data: campaignData, error: campErr } = await supabase.from('campaigns').insert([{
+            name: campaignName,
+            goal: goal || '',
+            voice: voice || 'Mark',
+            total_calls: contacts.length,
+            pending: contacts.length,
+            answered: 0,
+            positive: 0,
+            declined: 0,
+            failed: 0,
+            completed: 0,
+            status: 'running'
+        }]).select();
+
+        if (campErr) throw campErr;
+        const campaign = campaignData[0];
+
+        // Respond immediately so the UI doesn't hang
+        res.json({ 
+            success: true, 
+            campaign, 
+            message: `Campaign "${campaignName}" created with ${contacts.length} contacts. Dialing will begin shortly.` 
+        });
+
+        // BACKGROUND: Sequentially dial each contact with a 5-second delay between calls
+        (async () => {
+            const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').single();
+            const TWILIO_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
+            const TWILIO_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
+            const TWILIO_PHONE = twInt?.meta_data?.phone || process.env.TWILIO_PHONE_NUMBER;
+
+            if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_PHONE) {
+                console.error("Campaign aborted: Twilio credentials missing.");
+                await supabase.from('campaigns').update({ status: 'failed' }).eq('id', campaign.id);
+                return;
+            }
+
+            const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
+            const serverBaseUrl = "https://saas-backend.xqnsvk.easypanel.host";
+
+            for (let i = 0; i < contacts.length; i++) {
+                const contact = contacts[i];
+                try {
+                    const webhookUrl = `${serverBaseUrl}/api/twilio/outbound-twiml?toPhone=${encodeURIComponent(contact.phone)}&voice=${encodeURIComponent(voice || '')}&goal=${encodeURIComponent(goal || '')}`;
+                    
+                    const call = await twilioClient.calls.create({
+                        url: webhookUrl,
+                        to: contact.phone,
+                        from: TWILIO_PHONE,
+                        statusCallback: `${serverBaseUrl}/api/twilio/status`,
+                        statusCallbackEvent: ['completed']
+                    });
+
+                    // Log the outbound call
+                    await supabase.from('calls').insert([{
+                        direction: 'outbound',
+                        from_phone: TWILIO_PHONE,
+                        to_phone: contact.phone,
+                        caller_name: contact.name,
+                        status: call.status,
+                        twilio_sid: call.sid
+                    }]);
+
+                    // Update campaign pending counter
+                    const newPending = contacts.length - (i + 1);
+                    await supabase.from('campaigns').update({ 
+                        pending: newPending,
+                        answered: i + 1
+                    }).eq('id', campaign.id);
+
+                    console.log(`Campaign "${campaignName}" - Dialed ${i+1}/${contacts.length}: ${contact.phone}`);
+
+                    // Wait 30 seconds between calls to avoid Twilio rate limits on trial
+                    if (i < contacts.length - 1) {
+                        await new Promise(resolve => setTimeout(resolve, 30000));
+                    }
+                } catch (dialErr) {
+                    console.error(`Campaign dial failed for ${contact.phone}:`, dialErr.message);
+                    // Increment failed counter
+                    const { data: curr } = await supabase.from('campaigns').select('failed').eq('id', campaign.id).single();
+                    await supabase.from('campaigns').update({ 
+                        failed: (curr?.failed || 0) + 1,
+                        pending: contacts.length - (i + 1)
+                    }).eq('id', campaign.id);
+                }
+            }
+
+            // Mark campaign as completed
+            await supabase.from('campaigns').update({ status: 'completed', pending: 0 }).eq('id', campaign.id);
+            console.log(`Campaign "${campaignName}" finished all ${contacts.length} calls.`);
+        })();
+
+    } catch(err) {
+        console.error("CSV Campaign Launch Error:", err);
+        res.status(500).json({ error: err.message || "Failed to launch campaign." });
     }
 });
 
