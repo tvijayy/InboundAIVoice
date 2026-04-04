@@ -84,8 +84,9 @@ export default function App() {
 
   const fetchSlotsForDate = async (date) => {
     setLoadingSlots(true);
+    // Local-safe date string (YYYY-MM-DD) avoids UTC day-shifting bug
+    const dateStr = date.toLocaleDateString('en-CA'); 
     setAvailableSlots([]);
-    const dateStr = date.toISOString().split('T')[0];
     try {
       const res = await fetch(`${API_BASE}/api/tools/availability`, {
         method: 'POST',
@@ -104,7 +105,7 @@ export default function App() {
 
   // Get appointments for selected date
   const appointmentsForDate = (date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = date.toLocaleDateString('en-CA');
     return appointments.filter(a => a.start_time && a.start_time.startsWith(dateStr));
   };
 
