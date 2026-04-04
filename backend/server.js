@@ -372,7 +372,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
             console.error("Ultravox API failed:", uvData);
             const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say>The AI brain rejected the connection. Check console logs.</Say>
+    <Say>Ultravox API Error: ${JSON.stringify(uvData).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')}</Say>
 </Response>`;
             res.set('Content-Type', 'text/xml');
             return res.send(errorTwiml);
