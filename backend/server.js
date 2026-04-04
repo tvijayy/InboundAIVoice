@@ -51,10 +51,14 @@ app.post('/api/twilio/inbound', async (req, res) => {
 
         let finalPrompt = (agentData?.system_prompt || fallbackPrompt) + contextText;
         
-        // Add timezone context so AI generates correct IST times
-        const nowIST = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
         const todayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // YYYY-MM-DD
-        finalPrompt += `\n\nTIMEZONE CONTEXT: You operate in Indian Standard Time (IST, UTC+05:30). Today's date is ${todayISO}. Current time is ${nowIST}. When booking appointments, ALWAYS use the +05:30 timezone offset in ISO format. Example: 2026-04-08T15:00:00+05:30 for 3 PM IST.`;
+        finalPrompt += `\n\nCALENDAR RULES: You are strictly bound by the business calendar. You operate in Indian Standard Time (IST, UTC+05:30). Today's date is ${todayISO}. Current time is ${nowIST}. 
+        
+        STRICT PROTOCOL:
+        1. ALWAYS call 'check_availability' before suggesting ANY time to a caller.
+        2. DO NOT book appointments outside of the business hours or on holidays listed in the calendar.
+        3. When booking, ALWAYS use the +05:30 offset in ISO format (Example: 2026-04-08T15:00:00+05:30 for 3 PM IST).
+        4. If a caller asks to update or cancel, you MUST verify their details using the 'appointments' list provided in context.`;
         
         // Emphasize personality and rules
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
@@ -295,7 +299,13 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         // Add timezone context for outbound calls too
         const nowIST_out = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
         const todayISO_out = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-        finalPrompt += `\n\nTIMEZONE CONTEXT: You operate in Indian Standard Time (IST, UTC+05:30). Today is ${todayISO_out}. Current time: ${nowIST_out}. When booking appointments, ALWAYS use +05:30 offset. Example: 2026-04-08T15:00:00+05:30 for 3 PM IST.`;
+        finalPrompt += `\n\nCALENDAR RULES: You are strictly bound by the business calendar. You operate in IST (UTC+05:30). Today is ${todayISO_out}, Current time is ${nowIST_out}. 
+        
+        STRICT PROTOCOL:
+        1. ALWAYS call 'check_availability' before suggesting ANY time to a lead.
+        2. DO NOT book outside of business hours or on holidays.
+        3. ALWAYS use +05:30 offset. Example: 2026-04-08T15:00:00+05:30.
+        4. If they ask about an existing slot, cross-reference the context provided.`;
         
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
         if (reqGoal) finalPrompt += `\n\n[PRIMARY MISSION GOAL]: ${reqGoal}`;
