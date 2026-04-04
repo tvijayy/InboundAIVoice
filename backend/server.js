@@ -51,6 +51,11 @@ app.post('/api/twilio/inbound', async (req, res) => {
 
         let finalPrompt = (agentData?.system_prompt || fallbackPrompt) + contextText;
         
+        // Add timezone context so AI generates correct IST times
+        const nowIST = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+        const todayISO = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // YYYY-MM-DD
+        finalPrompt += `\n\nTIMEZONE CONTEXT: You operate in Indian Standard Time (IST, UTC+05:30). Today's date is ${todayISO}. Current time is ${nowIST}. When booking appointments, ALWAYS use the +05:30 timezone offset in ISO format. Example: 2026-04-08T15:00:00+05:30 for 3 PM IST.`;
+        
         // Emphasize personality and rules
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
         finalPrompt += "\n\nIMPORTANT INSTRUCTION: Call the 'log_call_outcome' tool when the conversation is naturally concluding to record sentiment and status.";
@@ -286,6 +291,12 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         }
 
         let finalPrompt = (agentData?.system_prompt || "You are an outbound sales AI calling a lead. Be incredibly persuasive, warm, and brief.") + contextText;
+        
+        // Add timezone context for outbound calls too
+        const nowIST_out = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+        const todayISO_out = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+        finalPrompt += `\n\nTIMEZONE CONTEXT: You operate in Indian Standard Time (IST, UTC+05:30). Today is ${todayISO_out}. Current time: ${nowIST_out}. When booking appointments, ALWAYS use +05:30 offset. Example: 2026-04-08T15:00:00+05:30 for 3 PM IST.`;
+        
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
         if (reqGoal) finalPrompt += `\n\n[PRIMARY MISSION GOAL]: ${reqGoal}`;
         finalPrompt += "\n\nIMPORTANT INSTRUCTION: Call the 'log_call_outcome' tool when the conversation is naturally concluding to record sentiment and status.";
@@ -478,20 +489,36 @@ app.get('/api/agent', async (req, res) => {
 // POST Agent Settings from Dashboard (Saving updates!)
 app.post('/api/agent', async (req, res) => {
     try {
-        const { system_prompt, voice_preset, temperature } = req.body;
+        const { 
+            system_prompt, voice_preset, temperature, 
+            personality, greeting_message,
+            working_days, open_time, close_time, non_working_dates 
+        } = req.body;
+        
+        const updateData = {};
+        if (system_prompt !== undefined) updateData.system_prompt = system_prompt;
+        if (voice_preset !== undefined) updateData.voice_preset = voice_preset;
+        if (temperature !== undefined) updateData.temperature = temperature;
+        if (personality !== undefined) updateData.personality = personality;
+        if (greeting_message !== undefined) updateData.greeting_message = greeting_message;
+        if (working_days !== undefined) updateData.working_days = working_days;
+        if (open_time !== undefined) updateData.open_time = open_time;
+        if (close_time !== undefined) updateData.close_time = close_time;
+        if (non_working_dates !== undefined) updateData.non_working_dates = non_working_dates;
         
         // Upsert to the first basic row
         const { data: existing } = await supabase.from('agent_settings').select('id').limit(1).single();
         
         if (existing && existing.id) {
-            await supabase.from('agent_settings').update({ system_prompt, voice_preset, temperature }).eq('id', existing.id);
+            await supabase.from('agent_settings').update(updateData).eq('id', existing.id);
         } else {
-            await supabase.from('agent_settings').insert([{ system_prompt, voice_preset, temperature }]);
+            await supabase.from('agent_settings').insert([updateData]);
         }
         
+        console.log('Agent settings saved:', Object.keys(updateData));
         res.json({ success: true, message: "Agent successfully updated globally!" });
     } catch (err) {
-        console.error(err);
+        console.error('Agent save error:', err);
         res.status(500).json({ error: "Could not save agent settings." });
     }
 });
@@ -574,49 +601,77 @@ app.post('/api/integrations', async (req, res) => {
 app.post('/api/tools/availability', async (req, res) => {
     try {
         const { target_date } = req.body;
-        console.log("Ultravox AI triggered check_availability for:", target_date);
+        console.log("Check availability for:", target_date);
         
         let { data: agentData } = await supabase.from('agent_settings').select('*').limit(1).single();
         if (!agentData) {
              agentData = { working_days: ["Mon", "Tue", "Wed", "Thu", "Fri"], open_time: '09:00', close_time: '18:00', non_working_dates: [] };
         }
         
-        const targetDateObj = new Date(target_date + 'T12:00:00Z');
+        // Parse date in IST context
+        const targetDateObj = new Date(target_date + 'T12:00:00+05:30');
         const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        const targetDayName = days[targetDateObj.getUTCDay()];
+        // Get day name in IST
+        const istOffset = 5.5 * 60 * 60 * 1000;
+        const istDate = new Date(targetDateObj.getTime() + istOffset - targetDateObj.getTimezoneOffset() * 60000);
+        const targetDayName = days[targetDateObj.getDay()];
         
-        // 1. Check if date is manually blocked
+        // 1. Check if date is manually blocked (holiday)
         const nonWorkingDates = agentData.non_working_dates || [];
         if (nonWorkingDates.includes(target_date)) {
-            return res.json({ available_slots: "Business is closed on this specific date." });
+            return res.json({ available_slots: "Business is closed on this date (marked as holiday)." });
         }
         
-        // 2. Check if day of week is supported
+        // 2. Check if day of week is a working day
         const workingDays = Array.isArray(agentData.working_days) ? agentData.working_days : ["Mon", "Tue", "Wed", "Thu", "Fri"];
         if (!workingDays.includes(targetDayName)) {
             return res.json({ available_slots: "Business is closed on " + targetDayName + "s." });
         }
         
-        // 3. Generate all possible slots (1 hour intervals for simplicity)
-        let openHour = parseInt((agentData.open_time || '09:00').split(':')[0]);
-        let closeHour = parseInt((agentData.close_time || '18:00').split(':')[0]);
+        // 3. Generate slots in IST (30-minute intervals)
+        const openTime = agentData.open_time || '09:00';
+        const closeTime = agentData.close_time || '18:00';
+        const [openH, openM] = openTime.split(':').map(Number);
+        const [closeH, closeM] = closeTime.split(':').map(Number);
+        
+        const openMinutes = openH * 60 + (openM || 0);
+        const closeMinutes = closeH * 60 + (closeM || 0);
         
         let allSlots = [];
-        for (let h = openHour; h < closeHour; h++) {
-            let hourStr = h.toString().padStart(2, '0') + ":00:00.000Z";
-            allSlots.push(`${target_date}T${hourStr}`);
+        for (let m = openMinutes; m < closeMinutes; m += 30) {
+            const h = Math.floor(m / 60);
+            const min = m % 60;
+            // Store as IST time string (no Z suffix — treated as local IST)
+            const timeStr = `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
+            allSlots.push(`${target_date}T${timeStr}:00+05:30`);
         }
         
         // 4. Fetch existing appointments for that day to find conflicts
+        const dayStart = `${target_date}T00:00:00+05:30`;
+        const dayEnd = `${target_date}T23:59:59+05:30`;
         const { data: existingApps } = await supabase
             .from('appointments')
             .select('start_time')
-            .gte('start_time', `${target_date}T00:00:00Z`)
-            .lte('start_time', `${target_date}T23:59:59Z`);
-            
-        let bookedSlots = existingApps ? existingApps.map(a => new Date(a.start_time).toISOString()) : [];
-        let freeSlots = allSlots.filter(slot => !bookedSlots.includes(slot));
+            .gte('start_time', dayStart)
+            .lte('start_time', dayEnd);
         
+        // Convert booked times to comparable format
+        let bookedHours = [];
+        if (existingApps) {
+            bookedHours = existingApps.map(a => {
+                const d = new Date(a.start_time);
+                // Convert to IST
+                const istTime = new Date(d.getTime() + (5.5 * 60 * 60 * 1000));
+                return `${istTime.getUTCHours().toString().padStart(2, '0')}:${istTime.getUTCMinutes().toString().padStart(2, '0')}`;
+            });
+        }
+        
+        let freeSlots = allSlots.filter(slot => {
+            const slotTime = slot.split('T')[1].substring(0, 5); // "09:00"
+            return !bookedHours.includes(slotTime);
+        });
+        
+        console.log(`Availability for ${target_date}: ${freeSlots.length} free slots (${openTime}-${closeTime} IST)`);
         res.json({ available_slots: freeSlots.length > 0 ? freeSlots : "No free slots on this date." });
     } catch (e) {
         console.error("Availability Check Error:", e);
@@ -627,19 +682,35 @@ app.post('/api/tools/availability', async (req, res) => {
 app.post('/api/tools/book', async (req, res) => {
     try {
         const { start_time, name, phone } = req.body;
-        console.log("Ultravox AI triggered book_appointment:", req.body);
+        console.log("Book appointment received:", { start_time, name, phone });
+        
+        if (!start_time) {
+            return res.json({ result: "Missing start_time. Ask the caller what date and time they want." });
+        }
         
         const startDate = new Date(start_time);
+        if (isNaN(startDate.getTime())) {
+            return res.json({ result: "Invalid date format. Use ISO 8601 format like 2026-04-08T15:00:00+05:30" });
+        }
+        
         const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour duration
         
-        await supabase.from('appointments').insert([{ 
+        const { data, error } = await supabase.from('appointments').insert([{ 
             name: name || "AI Caller", 
             phone: phone || "", 
             start_time: startDate.toISOString(), 
             end_time: endDate.toISOString(),
-            status: 'Confirmed'
-        }]);
-        res.json({ result: "Appointment officially booked into the internal system!" });
+            status: 'confirmed',
+            source: 'ai_agent'
+        }]).select();
+        
+        if (error) {
+            console.error("Supabase booking insert error:", error);
+            return res.json({ result: "Failed to save appointment. Database error." });
+        }
+        
+        console.log("Appointment booked successfully:", data?.[0]?.id);
+        res.json({ result: `Appointment successfully booked for ${name || 'caller'} on ${startDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}. Confirmed!` });
     } catch(err) {
         console.error("Booking Error:", err);
         res.status(500).json({ result: "Failed to book appointment" });
@@ -669,7 +740,7 @@ app.post('/api/tools/update', async (req, res) => {
 app.post('/api/tools/delete', async (req, res) => {
     try {
         const { name, phone } = req.body;
-        console.log("Ultravox AI triggered delete_appointment:", req.body);
+        console.log("Delete appointment requested:", req.body);
 
         const { data: appointments, error } = await supabase.from('appointments').select('*').ilike('name', `%${name}%`).eq('phone', phone);
         if (error || !appointments || appointments.length === 0) {
@@ -677,18 +748,6 @@ app.post('/api/tools/delete', async (req, res) => {
         }
 
         const target = appointments[0];
-
-        const { data: cal } = await supabase.from('integrations').select('*').eq('provider', 'calcom').single();
-        if (cal && cal.api_key && target.booking_uid) {
-             try {
-                 await fetch(`https://api.cal.com/v1/bookings/${target.booking_uid}/cancel?apiKey=${cal.api_key}`, {
-                     method: 'DELETE',
-                     headers: { 'Content-Type': 'application/json' },
-                     body: JSON.stringify({ reason: "Caller requested cancellation via AI" })
-                 });
-             } catch(e) { }
-        }
-
         await supabase.from('appointments').delete().eq('id', target.id);
         res.json({ result: "Appointment officially cancelled and removed from the calendar." });
     } catch(err) {
@@ -730,49 +789,32 @@ app.get('/api/appointments', async (req, res) => {
     }
 });
 
-// Sync ALL existing Cal.com bookings into our Supabase dashboard
-app.post('/api/appointments/sync', async (req, res) => {
+// Manual appointment booking from the Dashboard
+app.post('/api/appointments/manual', async (req, res) => {
     try {
-        const { data: cal } = await supabase.from('integrations').select('*').eq('provider', 'calcom').single();
-        if (!cal || !cal.api_key) return res.status(400).json({ error: "Cal.com API key not configured. Please save it in the Calendar settings first." });
-
-        // Fetch all upcoming bookings from Cal.com
-        const calRes = await fetch(`https://api.cal.com/v1/bookings?apiKey=${cal.api_key}&status=upcoming`, {
-            headers: { 'Content-Type': 'application/json' }
-        });
-        const calData = await calRes.json();
-
-        if (!calRes.ok) {
-            return res.status(400).json({ error: `Cal.com API error: ${calData.message || JSON.stringify(calData)}` });
+        const { name, phone, start_time } = req.body;
+        if (!name || !start_time) {
+            return res.status(400).json({ error: "Name and start_time are required." });
         }
-
-        const bookings = calData.bookings || [];
-        let synced = 0;
-
-        for (const booking of bookings) {
-            const attendee = booking.attendees?.[0] || {};
-            const bookingUid = booking.uid;
-            const startTime = booking.startTime;
-            const name = attendee.name || booking.title || 'Unknown';
-            const phone = attendee.phoneNumber || '';
-
-            // Check if we already have this booking in Supabase (avoid duplicates)
-            const { data: existing } = await supabase.from('appointments').select('id').eq('booking_uid', bookingUid).single();
-            if (!existing) {
-                await supabase.from('appointments').insert([{
-                    name, phone, start_time: startTime,
-                    booking_uid: bookingUid,
-                    source: 'calcom_sync',
-                    status: booking.status || 'confirmed'
-                }]);
-                synced++;
-            }
-        }
-
-        res.json({ success: true, message: `Sync complete. ${synced} new bookings imported from Cal.com. Total in Cal.com: ${bookings.length}.` });
+        
+        const startDate = new Date(start_time);
+        const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+        
+        const { data, error } = await supabase.from('appointments').insert([{
+            name,
+            phone: phone || '',
+            start_time: startDate.toISOString(),
+            end_time: endDate.toISOString(),
+            status: 'confirmed',
+            source: 'manual'
+        }]).select();
+        
+        if (error) throw error;
+        console.log('Manual appointment booked:', data?.[0]?.id);
+        res.json({ success: true, appointment: data[0] });
     } catch(err) {
-        console.error('Cal.com sync error:', err);
-        res.status(500).json({ error: err.message || "Sync failed." });
+        console.error('Manual booking error:', err);
+        res.status(500).json({ error: "Failed to book appointment." });
     }
 });
 
