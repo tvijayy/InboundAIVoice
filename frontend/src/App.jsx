@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { BarChart3, Calendar, Bot, Mic, Key, Phone, Users, PhoneOutgoing, Globe, Sparkles, Trash2, RefreshCw, CheckCircle, XCircle, Target, BookOpen, Megaphone, Bell, Sun, Moon } from 'lucide-react';
 import { cn } from './lib/utils';
+import * as XLSX from 'xlsx';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://saas-backend.xqnsvk.easypanel.host';
 
@@ -803,11 +804,11 @@ export default function App() {
                 <div className="flex flex-col gap-3">
                   <div className="border-2 border-dashed border-border rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-white/[0.02] transition relative">
                    <Globe size={32} className="text-muted-foreground mb-3" />
-                   <h4 className="font-semibold text-sm">Upload CSV File</h4>
-                   <p className="text-xs text-muted-foreground mt-1">Batch outbound calling.</p>
+                   <h4 className="font-semibold text-sm">Upload CSV or Excel File</h4>
+                   <p className="text-xs text-muted-foreground mt-1">Supports .csv, .xlsx, .xls</p>
                    <input
                      type="file"
-                     accept=".csv,.txt"
+                     accept=".csv,.txt,.xlsx,.xls"
                      className="absolute inset-0 opacity-0 cursor-pointer"
                      onChange={async (e) => {
                        const file = e.target.files[0];
@@ -815,22 +816,22 @@ export default function App() {
                        const campaignNameEl = document.querySelector('input[name="campaign_name"]');
                        const campaignName = campaignNameEl?.value;
                        if (!campaignName) {
-                         showToast('Enter a Campaign Name first before uploading CSV.', 'error');
+                         showToast('Enter a Campaign Name first before uploading.', 'error');
                          e.target.value = '';
                          return;
                        }
                        const voice = document.querySelector('select[name="campaign_voice"]')?.value || 'Mark';
                        const goal = document.getElementById('campaign_goal')?.value || '';
                        
-                       const reader = new FileReader();
-                       reader.onload = async (evt) => {
-                         const csvText = evt.target.result;
+                       const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+                       
+                       const processCSV = async (csvText) => {
                          try {
-                           showToast('Parsing CSV and launching campaign...', 'success');
+                           showToast('Parsing file and launching campaign...', 'success');
                            const res = await fetch(`${API_BASE}/api/campaigns/csv-launch`, {
                              method: 'POST',
                              headers: { 'Content-Type': 'application/json' },
-                             body: JSON.stringify({ csvText, campaignName: campaignName, voice, goal })
+                             body: JSON.stringify({ csvText, campaignName, voice, goal })
                            });
                            const data = await res.json();
                            if (data.success) {
@@ -844,21 +845,78 @@ export default function App() {
                            showToast('Upload failed. Check backend.', 'error');
                          }
                        };
-                       reader.readAsText(file);
+
+                       if (isExcel) {
+                         const reader = new FileReader();
+                         reader.onload = async (evt) => {
+                           try {
+                             const workbook = XLSX.read(evt.target.result, { type: 'array' });
+                             const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                             const csvText = XLSX.utils.sheet_to_csv(firstSheet);
+                             await processCSV(csvText);
+                           } catch(err) {
+                             showToast('Failed to parse Excel file. Ensure it has phone numbers.', 'error');
+                           }
+                         };
+                         reader.readAsArrayBuffer(file);
+                       } else {
+                         const reader = new FileReader();
+                         reader.onload = async (evt) => {
+                           await processCSV(evt.target.result);
+                         };
+                         reader.readAsText(file);
+                       }
                        e.target.value = '';
                      }}
                    />
                    <div className="mt-4 bg-primary/20 text-primary px-4 py-1.5 rounded-full text-xs font-semibold">Bulk Connect</div>
                   </div>
                   <div className="bg-background border border-border rounded-lg p-3">
-                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">CSV Format Guide</p>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Accepted Formats — CSV, Excel, or Google Sheets</p>
                     <div className="font-mono text-[10px] text-muted-foreground leading-relaxed bg-sidebar/30 rounded-md p-2.5 border border-border/50">
                       <p className="text-foreground/70 mb-1">name, phone</p>
                       <p>John Doe, +14155551234</p>
                       <p>Jane Smith, +442071234567</p>
                       <p>Kumar R, +919876543210</p>
                     </div>
-                    <p className="text-[9px] text-muted-foreground mt-2 leading-relaxed">Header row is optional. Each row needs at least a phone number with country code. Name column is optional.</p>
+                    <p className="text-[9px] text-muted-foreground mt-2 leading-relaxed">Header row is optional. Each row needs at least a phone number with country code (+1, +44, +91, etc). Name column is optional. Excel uses the first sheet.</p>
+                  </div>
+                  <div className="bg-background border border-border rounded-lg p-3">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Or Import from Google Sheets</p>
+                    <p className="text-[9px] text-muted-foreground mb-2 leading-relaxed">Paste a Google Sheet URL below. The sheet must be set to <strong>"Anyone with the link can view"</strong>.</p>
+                    <div className="flex gap-2">
+                      <input id="gsheet_url" placeholder="https://docs.google.com/spreadsheets/d/..." className="flex-1 bg-sidebar/30 border border-border/50 rounded-md px-3 py-2 text-[11px] outline-none focus:border-primary transition font-mono" />
+                      <button onClick={async () => {
+                        const url = document.getElementById('gsheet_url')?.value;
+                        const campaignNameEl = document.querySelector('input[name="campaign_name"]');
+                        const campaignName = campaignNameEl?.value;
+                        if (!campaignName) { showToast('Enter a Campaign Name first.', 'error'); return; }
+                        if (!url || !url.includes('docs.google.com/spreadsheets')) { showToast('Enter a valid Google Sheets URL.', 'error'); return; }
+
+                        const voice = document.querySelector('select[name="campaign_voice"]')?.value || 'Mark';
+                        const goal = document.getElementById('campaign_goal')?.value || '';
+
+                        try {
+                          showToast('Fetching Google Sheet and launching campaign...', 'success');
+                          const res = await fetch(`${API_BASE}/api/campaigns/gsheet-launch`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sheetUrl: url, campaignName, voice, goal })
+                          });
+                          const data = await res.json();
+                          if (data.success) {
+                            showToast(data.message, 'success');
+                            fetchAll();
+                            if (campaignNameEl) campaignNameEl.value = '';
+                            document.getElementById('gsheet_url').value = '';
+                          } else {
+                            showToast(data.error || 'Google Sheet import failed.', 'error');
+                          }
+                        } catch(err) {
+                          showToast('Google Sheet import failed.', 'error');
+                        }
+                      }} className="bg-primary/80 hover:bg-primary text-white text-[11px] font-semibold px-4 py-2 rounded-md transition whitespace-nowrap">Import & Launch</button>
+                    </div>
                   </div>
                 </div>
               </div>
