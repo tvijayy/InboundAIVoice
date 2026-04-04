@@ -96,7 +96,7 @@ export default function App() {
       if (Array.isArray(data.available_slots)) {
         setAvailableSlots(data.available_slots);
       } else {
-        setAvailableSlots([]);
+        setAvailableSlots(data.available_slots || []); // Could be a string reason
       }
     } catch(e) { setAvailableSlots([]); }
     setLoadingSlots(false);
@@ -369,13 +369,17 @@ export default function App() {
                     </h4>
                     {loadingSlots ? (
                       <div className="text-xs text-muted-foreground italic">Fetching available time slots...</div>
-                    ) : (
+                    ) : Array.isArray(availableSlots) && availableSlots.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {availableSlots.map((slot, i) => (
                           <span key={i} className="bg-green-500/10 text-green-400 border border-green-500/20 px-3 py-1 rounded-full text-xs font-mono">
                             {new Date(slot).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         ))}
+                      </div>
+                    ) : (
+                      <div className="bg-amber-500/5 text-amber-500/60 border border-amber-500/10 p-3 rounded-lg text-xs font-medium">
+                        {typeof availableSlots === 'string' ? availableSlots : "No free slots available for this date."}
                       </div>
                     )}
                   </div>
