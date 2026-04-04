@@ -800,7 +800,8 @@ export default function App() {
                    }} className="w-full bg-primary hover:bg-primary/90 text-white font-semibold rounded-lg p-2.5 text-sm shadow shadow-primary/20 mt-1 transition">Dial Target</button>
                 </div>
                 
-                <div className="border-2 border-dashed border-border rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-white/[0.02] transition relative">
+                <div className="flex flex-col gap-3">
+                  <div className="border-2 border-dashed border-border rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-white/[0.02] transition relative">
                    <Globe size={32} className="text-muted-foreground mb-3" />
                    <h4 className="font-semibold text-sm">Upload CSV File</h4>
                    <p className="text-xs text-muted-foreground mt-1">Batch outbound calling.</p>
@@ -848,6 +849,17 @@ export default function App() {
                      }}
                    />
                    <div className="mt-4 bg-primary/20 text-primary px-4 py-1.5 rounded-full text-xs font-semibold">Bulk Connect</div>
+                  </div>
+                  <div className="bg-background border border-border rounded-lg p-3">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">CSV Format Guide</p>
+                    <div className="font-mono text-[10px] text-muted-foreground leading-relaxed bg-sidebar/30 rounded-md p-2.5 border border-border/50">
+                      <p className="text-foreground/70 mb-1">name, phone</p>
+                      <p>John Doe, +14155551234</p>
+                      <p>Jane Smith, +442071234567</p>
+                      <p>Kumar R, +919876543210</p>
+                    </div>
+                    <p className="text-[9px] text-muted-foreground mt-2 leading-relaxed">Header row is optional. Each row needs at least a phone number with country code. Name column is optional.</p>
+                  </div>
                 </div>
               </div>
             </div>
