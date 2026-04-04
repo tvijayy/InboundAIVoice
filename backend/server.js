@@ -999,6 +999,47 @@ app.post('/api/campaigns/csv-launch', async (req, res) => {
     }
 });
 
+// GOOGLE SHEETS IMPORT + AUTO LAUNCH CAMPAIGN
+app.post('/api/campaigns/gsheet-launch', async (req, res) => {
+    try {
+        const { sheetUrl, campaignName, voice, goal } = req.body;
+        if (!sheetUrl || !campaignName) {
+            return res.status(400).json({ error: "Missing Google Sheet URL or campaign name." });
+        }
+
+        // Extract the spreadsheet ID from the URL
+        const match = sheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+        if (!match) {
+            return res.status(400).json({ error: "Invalid Google Sheets URL. Make sure you copied the full link." });
+        }
+        const sheetId = match[1];
+
+        // Fetch the sheet as CSV using Google's public export (sheet must be "Anyone with the link")
+        const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+        const csvResponse = await fetch(csvUrl);
+
+        if (!csvResponse.ok) {
+            return res.status(400).json({ error: "Could not fetch Google Sheet. Make sure sharing is set to 'Anyone with the link can view'." });
+        }
+
+        const csvText = await csvResponse.text();
+
+        // Reuse the existing CSV parsing and campaign launch logic
+        // Forward internally to the csv-launch handler logic
+        const internalRes = await fetch(`http://localhost:${PORT}/api/campaigns/csv-launch`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ csvText, campaignName, voice, goal })
+        });
+        const result = await internalRes.json();
+        res.json(result);
+
+    } catch(err) {
+        console.error("Google Sheet Import Error:", err);
+        res.status(500).json({ error: err.message || "Failed to import Google Sheet." });
+    }
+});
+
 app.get('/api/reports', async (req, res) => {
     try {
         const { data: calls } = await supabase.from('calls').select('*');
