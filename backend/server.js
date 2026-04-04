@@ -64,9 +64,13 @@ app.post('/api/twilio/inbound', async (req, res) => {
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
         finalPrompt += "\n\nIMPORTANT INSTRUCTION: Call the 'log_call_outcome' tool when the conversation is naturally concluding to record sentiment and status.";
 
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        // Force https for Ultravox tool callbacks as required by their API
+        const baseUrl = `https://${req.get('host')}`;
         console.log(`[Ultravox] Creating session with tools at: ${baseUrl}`);
         
+        const rawVoice = agentData?.voice_preset || "Mark";
+        const finalVoice = (rawVoice === "Tanya" || rawVoice === "Adam" || rawVoice === "Emily") ? "Priya" : rawVoice;
+
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
             method: 'POST',
             headers: {
@@ -75,7 +79,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
             },
             body: JSON.stringify({
                 systemPrompt: finalPrompt,
-                voice: agentData?.voice_preset || "Mark",
+                voice: finalVoice,
                 temperature: agentData?.temperature || 0.3,
                 firstSpeaker: "FIRST_SPEAKER_AGENT",
                 medium: { twilio: {} },
@@ -313,9 +317,10 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         if (reqGoal) finalPrompt += `\n\n[PRIMARY MISSION GOAL]: ${reqGoal}`;
         finalPrompt += "\n\nIMPORTANT INSTRUCTION: Call the 'log_call_outcome' tool when the conversation is naturally concluding to record sentiment and status.";
 
-        const finalVoice = reqVoice || agentData?.voice_preset || "Mark";
+        const rawVoice = reqVoice || agentData?.voice_preset || "Mark";
+        const finalVoice = (rawVoice === "Tanya" || rawVoice === "Adam" || rawVoice === "Emily") ? "Priya" : rawVoice;
 
-        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const baseUrl = `https://${req.get('host')}`;
         
         // 2. Create the Ultravox Session right now (no timeout risk because they just pressed the key!)
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
