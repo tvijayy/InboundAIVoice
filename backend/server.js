@@ -3,8 +3,8 @@ const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(cors());
 
 // Friendly greeting for the root URL so the browser doesn't show an error
@@ -860,142 +860,145 @@ app.patch('/api/campaigns/:id', async (req, res) => {
     }
 });
 
+// --- Shared CSV Parser (used by both CSV upload and Google Sheets) ---
+function parseCSVContacts(csvText) {
+    const lines = csvText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length === 0) return [];
+    
+    let startIdx = 0;
+    const firstLine = lines[0].toLowerCase();
+    if (firstLine.includes('phone') || firstLine.includes('name') || firstLine.includes('number')) {
+        startIdx = 1;
+    }
+
+    const contacts = [];
+    for (let i = startIdx; i < lines.length; i++) {
+        const parts = lines[i].split(',').map(p => p.trim().replace(/"/g, ''));
+        let phone = null;
+        let name = null;
+        for (const part of parts) {
+            if (part.match(/^\+?\d[\d\s\-()]{6,}$/)) {
+                phone = part.replace(/[\s\-()]/g, '');
+            } else if (part.length > 1 && !phone) {
+                name = part;
+            }
+        }
+        if (phone) {
+            if (!phone.startsWith('+')) {
+                phone = '+' + phone;
+            }
+            contacts.push({ phone, name: name || 'Unknown' });
+        }
+    }
+    return contacts;
+}
+
+async function launchCampaignWithContacts(contacts, campaignName, voice, goal, supabase) {
+    const { data: campaignData, error: campErr } = await supabase.from('campaigns').insert([{
+        name: campaignName,
+        goal: goal || '',
+        voice: voice || 'Mark',
+        total_calls: contacts.length,
+        pending: contacts.length,
+        answered: 0,
+        positive: 0,
+        declined: 0,
+        failed: 0,
+        completed: 0,
+        status: 'running'
+    }]).select();
+
+    if (campErr) throw campErr;
+    const campaign = campaignData[0];
+
+    // BACKGROUND: Sequentially dial each contact
+    (async () => {
+        const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').single();
+        const TWILIO_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
+        const TWILIO_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
+        const TWILIO_PHONE = twInt?.meta_data?.phone || process.env.TWILIO_PHONE_NUMBER;
+
+        if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_PHONE) {
+            console.error("Campaign aborted: Twilio credentials missing.");
+            await supabase.from('campaigns').update({ status: 'failed' }).eq('id', campaign.id);
+            return;
+        }
+
+        const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
+        const serverBaseUrl = "https://saas-backend.xqnsvk.easypanel.host";
+
+        for (let i = 0; i < contacts.length; i++) {
+            const contact = contacts[i];
+            try {
+                const webhookUrl = `${serverBaseUrl}/api/twilio/outbound-twiml?toPhone=${encodeURIComponent(contact.phone)}&voice=${encodeURIComponent(voice || '')}&goal=${encodeURIComponent(goal || '')}`;
+                
+                const call = await twilioClient.calls.create({
+                    url: webhookUrl,
+                    to: contact.phone,
+                    from: TWILIO_PHONE,
+                    statusCallback: `${serverBaseUrl}/api/twilio/status`,
+                    statusCallbackEvent: ['completed']
+                });
+
+                await supabase.from('calls').insert([{
+                    direction: 'outbound',
+                    from_phone: TWILIO_PHONE,
+                    to_phone: contact.phone,
+                    caller_name: contact.name,
+                    status: call.status,
+                    twilio_sid: call.sid
+                }]);
+
+                const newPending = contacts.length - (i + 1);
+                await supabase.from('campaigns').update({ 
+                    pending: newPending,
+                    answered: i + 1
+                }).eq('id', campaign.id);
+
+                console.log(`Campaign "${campaignName}" - Dialed ${i+1}/${contacts.length}: ${contact.phone}`);
+
+                if (i < contacts.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 30000));
+                }
+            } catch (dialErr) {
+                console.error(`Campaign dial failed for ${contact.phone}:`, dialErr.message);
+                const { data: curr } = await supabase.from('campaigns').select('failed').eq('id', campaign.id).single();
+                await supabase.from('campaigns').update({ 
+                    failed: (curr?.failed || 0) + 1,
+                    pending: contacts.length - (i + 1)
+                }).eq('id', campaign.id);
+            }
+        }
+
+        await supabase.from('campaigns').update({ status: 'completed', pending: 0 }).eq('id', campaign.id);
+        console.log(`Campaign "${campaignName}" finished all ${contacts.length} calls.`);
+    })();
+
+    return campaign;
+}
+
 // CSV BULK UPLOAD + AUTO LAUNCH CAMPAIGN
 app.post('/api/campaigns/csv-launch', async (req, res) => {
     try {
         const { csvText, campaignName, voice, goal } = req.body;
+        console.log('CSV Launch received:', { hasCsvText: !!csvText, csvLength: csvText?.length, campaignName });
         if (!csvText || !campaignName) {
             return res.status(400).json({ error: "Missing CSV data or campaign name." });
         }
 
-        // Parse CSV: accept lines with phone numbers (with optional name column)
-        const lines = csvText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-        
-        // Detect header row
-        let startIdx = 0;
-        const firstLine = lines[0].toLowerCase();
-        if (firstLine.includes('phone') || firstLine.includes('name') || firstLine.includes('number')) {
-            startIdx = 1; // skip header
-        }
-
-        const contacts = [];
-        for (let i = startIdx; i < lines.length; i++) {
-            const parts = lines[i].split(',').map(p => p.trim().replace(/"/g, ''));
-            // Try to find a phone-like value (digits, optionally starting with +)
-            let phone = null;
-            let name = null;
-            for (const part of parts) {
-                if (part.match(/^\+?\d[\d\s\-()]{6,}$/)) {
-                    phone = part.replace(/[\s\-()]/g, '');
-                } else if (part.length > 1 && !phone) {
-                    name = part;
-                }
-            }
-            if (phone) {
-                // Auto-prepend + if the client didn't include it (avoids Excel formula issues)
-                if (!phone.startsWith('+')) {
-                    phone = '+' + phone;
-                }
-                contacts.push({ phone, name: name || 'Unknown' });
-            }
-        }
+        const contacts = parseCSVContacts(csvText);
 
         if (contacts.length === 0) {
-            return res.status(400).json({ error: "No valid phone numbers found in CSV." });
+            return res.status(400).json({ error: "No valid phone numbers found in CSV. Make sure each row has a number with at least 7 digits." });
         }
 
-        // Create the campaign in Supabase
-        const { data: campaignData, error: campErr } = await supabase.from('campaigns').insert([{
-            name: campaignName,
-            goal: goal || '',
-            voice: voice || 'Mark',
-            total_calls: contacts.length,
-            pending: contacts.length,
-            answered: 0,
-            positive: 0,
-            declined: 0,
-            failed: 0,
-            completed: 0,
-            status: 'running'
-        }]).select();
+        const campaign = await launchCampaignWithContacts(contacts, campaignName, voice, goal, supabase);
 
-        if (campErr) throw campErr;
-        const campaign = campaignData[0];
-
-        // Respond immediately so the UI doesn't hang
         res.json({ 
             success: true, 
             campaign, 
             message: `Campaign "${campaignName}" created with ${contacts.length} contacts. Dialing will begin shortly.` 
         });
-
-        // BACKGROUND: Sequentially dial each contact with a 5-second delay between calls
-        (async () => {
-            const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').single();
-            const TWILIO_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
-            const TWILIO_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
-            const TWILIO_PHONE = twInt?.meta_data?.phone || process.env.TWILIO_PHONE_NUMBER;
-
-            if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_PHONE) {
-                console.error("Campaign aborted: Twilio credentials missing.");
-                await supabase.from('campaigns').update({ status: 'failed' }).eq('id', campaign.id);
-                return;
-            }
-
-            const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
-            const serverBaseUrl = "https://saas-backend.xqnsvk.easypanel.host";
-
-            for (let i = 0; i < contacts.length; i++) {
-                const contact = contacts[i];
-                try {
-                    const webhookUrl = `${serverBaseUrl}/api/twilio/outbound-twiml?toPhone=${encodeURIComponent(contact.phone)}&voice=${encodeURIComponent(voice || '')}&goal=${encodeURIComponent(goal || '')}`;
-                    
-                    const call = await twilioClient.calls.create({
-                        url: webhookUrl,
-                        to: contact.phone,
-                        from: TWILIO_PHONE,
-                        statusCallback: `${serverBaseUrl}/api/twilio/status`,
-                        statusCallbackEvent: ['completed']
-                    });
-
-                    // Log the outbound call
-                    await supabase.from('calls').insert([{
-                        direction: 'outbound',
-                        from_phone: TWILIO_PHONE,
-                        to_phone: contact.phone,
-                        caller_name: contact.name,
-                        status: call.status,
-                        twilio_sid: call.sid
-                    }]);
-
-                    // Update campaign pending counter
-                    const newPending = contacts.length - (i + 1);
-                    await supabase.from('campaigns').update({ 
-                        pending: newPending,
-                        answered: i + 1
-                    }).eq('id', campaign.id);
-
-                    console.log(`Campaign "${campaignName}" - Dialed ${i+1}/${contacts.length}: ${contact.phone}`);
-
-                    // Wait 30 seconds between calls to avoid Twilio rate limits on trial
-                    if (i < contacts.length - 1) {
-                        await new Promise(resolve => setTimeout(resolve, 30000));
-                    }
-                } catch (dialErr) {
-                    console.error(`Campaign dial failed for ${contact.phone}:`, dialErr.message);
-                    // Increment failed counter
-                    const { data: curr } = await supabase.from('campaigns').select('failed').eq('id', campaign.id).single();
-                    await supabase.from('campaigns').update({ 
-                        failed: (curr?.failed || 0) + 1,
-                        pending: contacts.length - (i + 1)
-                    }).eq('id', campaign.id);
-                }
-            }
-
-            // Mark campaign as completed
-            await supabase.from('campaigns').update({ status: 'completed', pending: 0 }).eq('id', campaign.id);
-            console.log(`Campaign "${campaignName}" finished all ${contacts.length} calls.`);
-        })();
 
     } catch(err) {
         console.error("CSV Campaign Launch Error:", err);
@@ -1011,14 +1014,13 @@ app.post('/api/campaigns/gsheet-launch', async (req, res) => {
             return res.status(400).json({ error: "Missing Google Sheet URL or campaign name." });
         }
 
-        // Extract the spreadsheet ID from the URL
         const match = sheetUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
         if (!match) {
             return res.status(400).json({ error: "Invalid Google Sheets URL. Make sure you copied the full link." });
         }
         const sheetId = match[1];
 
-        // Fetch the sheet as CSV using Google's public export (sheet must be "Anyone with the link")
+        console.log('Fetching Google Sheet:', sheetId);
         const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
         const csvResponse = await fetch(csvUrl);
 
@@ -1027,16 +1029,21 @@ app.post('/api/campaigns/gsheet-launch', async (req, res) => {
         }
 
         const csvText = await csvResponse.text();
+        console.log('Google Sheet CSV length:', csvText.length);
 
-        // Reuse the existing CSV parsing and campaign launch logic
-        // Forward internally to the csv-launch handler logic
-        const internalRes = await fetch(`http://localhost:${PORT}/api/campaigns/csv-launch`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ csvText, campaignName, voice, goal })
+        // Parse contacts directly (no internal HTTP call)
+        const contacts = parseCSVContacts(csvText);
+        if (contacts.length === 0) {
+            return res.status(400).json({ error: "No valid phone numbers found in the Google Sheet." });
+        }
+
+        const campaign = await launchCampaignWithContacts(contacts, campaignName, voice, goal, supabase);
+
+        res.json({ 
+            success: true, 
+            campaign, 
+            message: `Campaign "${campaignName}" created with ${contacts.length} contacts from Google Sheet. Dialing will begin shortly.` 
         });
-        const result = await internalRes.json();
-        res.json(result);
 
     } catch(err) {
         console.error("Google Sheet Import Error:", err);
