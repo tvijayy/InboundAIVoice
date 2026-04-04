@@ -81,7 +81,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                     required: true
                                 }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/availability" }
+                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/availability" }
                         }
                     },
                     {
@@ -108,7 +108,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                     required: false
                                 }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/book" }
+                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/book" }
                         }
                     },
                     {
@@ -135,7 +135,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                     required: true
                                 }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/update" }
+                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/update" }
                         }
                     },
                     {
@@ -156,7 +156,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                     required: true
                                 }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/delete" }
+                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/delete" }
                         }
                     },
                     {
@@ -168,7 +168,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                 { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Positive, Negative, or Neutral" }, required: true },
                                 { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/log_outcome" }
+                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/log_outcome" }
                         }
                     }
                 ]
@@ -233,9 +233,9 @@ app.post('/api/calls/outbound', async (req, res) => {
 
         const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
         
-        // 2. Build the webhook URL to be hit ONLY AFTER the user answers!
-        const serverBaseUrl = process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host";
-        const webhookUrl = `${serverBaseUrl}/api/twilio/outbound-twiml?toPhone=${encodeURIComponent(toPhone)}&voice=${encodeURIComponent(voice || '')}&goal=${encodeURIComponent(goal || '')}`;
+        // Use exact domain to prevent .env overrides from breaking Status Callback
+        const serverBaseUrl = "https://saas-backend.xqnsvk.easypanel.host";
+        const webhookUrl = `${serverBaseUrl}/api/twilio/outbound-twiml?toPhone=${encodeURIComponent(toPhone || '')}&voice=${encodeURIComponent(voice || '')}&goal=${encodeURIComponent(goal || '')}`;
 
         // 3. Directly command Twilio to physically dial the lead
         const call = await twilioClient.calls.create({
@@ -264,34 +264,8 @@ app.post('/api/calls/outbound', async (req, res) => {
     }
 });
 
-// Twilio Webhook (Hit instantly when they answer, but Twilio plays a 10s trial prompt!)
+// Twilio Webhook (Hit exactly when the user presses the key on a trial account, or instantly on full accounts)
 app.post('/api/twilio/outbound-twiml', async (req, res) => {
-    try {
-        const toPhone = req.query.toPhone;
-        const reqVoice = req.query.voice;
-        const reqGoal = req.query.goal;
-
-        // Redirect to the connection endpoint to defer Ultravox token generation!
-        const serverBaseUrl = process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host";
-        const redirUrl = `${serverBaseUrl}/api/twilio/outbound-connect?toPhone=${encodeURIComponent(toPhone || '')}&voice=${encodeURIComponent(reqVoice || '')}&goal=${encodeURIComponent(reqGoal || '')}`;
-        const safeRedirUrl = redirUrl.replace(/&/g, '&amp;');
-
-        const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <!-- Pause 10 seconds to wait out the mandatory Twilio Trial message before making the AI talk -->
-    <Pause length="10"/>
-    <Redirect method="POST">${safeRedirUrl}</Redirect>
-</Response>`;
-
-        res.set('Content-Type', 'text/xml');
-        res.send(twiml);
-    } catch (err) {
-        res.status(500).send('<Response><Say>Error</Say></Response>');
-    }
-});
-
-// Twilio Webhook Stage 2: Generates the actual AI token exactly when the connection starts!
-app.post('/api/twilio/outbound-connect', async (req, res) => {
     try {
         const toPhone = req.query.toPhone;
         const reqVoice = req.query.voice;
@@ -318,7 +292,7 @@ app.post('/api/twilio/outbound-connect', async (req, res) => {
 
         const finalVoice = reqVoice || agentData?.voice_preset || "Mark";
 
-        // 2. Create the Ultravox Session right now (no timeout risk!)
+        // 2. Create the Ultravox Session right now (no timeout risk because they just pressed the key!)
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
             method: 'POST',
             headers: {
@@ -345,7 +319,7 @@ app.post('/api/twilio/outbound-connect', async (req, res) => {
                                     required: true
                                 }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/availability" }
+                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/availability" }
                         }
                     },
                     {
@@ -372,7 +346,7 @@ app.post('/api/twilio/outbound-connect', async (req, res) => {
                                     required: false
                                 }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/book" }
+                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/book" }
                         }
                     },
                     {
@@ -384,7 +358,7 @@ app.post('/api/twilio/outbound-connect', async (req, res) => {
                                 { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Positive, Negative, or Neutral" }, required: true },
                                 { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host/api/tools/log_outcome" }
+                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/log_outcome" }
                         }
                     }
                 ]
@@ -393,7 +367,18 @@ app.post('/api/twilio/outbound-connect', async (req, res) => {
 
         const uvData = await uvResponse.json();
         const joinUrl = uvData.joinUrl;
-        const safeJoinUrl = joinUrl ? joinUrl.replace(/&/g, '&amp;') : '';
+        
+        if (!joinUrl) {
+            console.error("Ultravox API failed:", uvData);
+            const errorTwiml = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>The AI brain rejected the connection. Check console logs.</Say>
+</Response>`;
+            res.set('Content-Type', 'text/xml');
+            return res.send(errorTwiml);
+        }
+
+        const safeJoinUrl = joinUrl.replace(/&/g, '&amp;');
         const ultravoxCallId = uvData.callId;
 
         // 3. Connect the Ultravox ID back to the original call
