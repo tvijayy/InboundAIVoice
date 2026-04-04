@@ -60,7 +60,14 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       fontFamily: {
-        sans: ["Inter", "sans-serif"],
+        sans: ['"Inter"', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+      },
+      fontSize: {
+        '2xs': ['0.65rem', { lineHeight: '1rem' }],
+      },
+      letterSpacing: {
+        'ultra': '0.15em',
       },
       keyframes: {
         "accordion-down": {
@@ -74,13 +81,24 @@ export default {
         "pulse-glow": {
           "0%, 100%": { boxShadow: "0 0 6px #22c55e" },
           "50%": { boxShadow: "0 0 14px #22c55e" },
+        },
+        "shimmer": {
+          "0%": { backgroundPosition: "-200% 0" },
+          "100%": { backgroundPosition: "200% 0" },
         }
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "pulse-glow": "pulse-glow 2s infinite"
+        "pulse-glow": "pulse-glow 2s infinite",
+        "shimmer": "shimmer 2s infinite",
       },
+      boxShadow: {
+        'glow': '0 0 20px rgba(108, 99, 255, 0.15)',
+        'glow-lg': '0 0 40px rgba(108, 99, 255, 0.2)',
+        'premium': '0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06)',
+        'premium-lg': '0 4px 6px rgba(0,0,0,0.04), 0 10px 40px rgba(0,0,0,0.1)',
+      }
     },
   },
   plugins: [require("tailwindcss-animate")],
