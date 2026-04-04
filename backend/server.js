@@ -64,7 +64,9 @@ app.post('/api/twilio/inbound', async (req, res) => {
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
         finalPrompt += "\n\nIMPORTANT INSTRUCTION: Call the 'log_call_outcome' tool when the conversation is naturally concluding to record sentiment and status.";
 
-        // 3. Create a Call on Ultravox to get a secure WebSocket connect URL
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        console.log(`[Ultravox] Creating session with tools at: ${baseUrl}`);
+        
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
             method: 'POST',
             headers: {
@@ -75,22 +77,22 @@ app.post('/api/twilio/inbound', async (req, res) => {
                 systemPrompt: finalPrompt,
                 voice: agentData?.voice_preset || "Mark",
                 temperature: agentData?.temperature || 0.3,
-                firstSpeaker: "FIRST_SPEAKER_AGENT", // Force the AI to say hello first!
-                medium: { twilio: {} }, // CRITICAL: Tell Ultravox to use Twilio's audio stream format!
+                firstSpeaker: "FIRST_SPEAKER_AGENT",
+                medium: { twilio: {} },
                 selectedTools: [
                     {
                         temporaryTool: {
                             modelToolName: "check_availability",
-                            description: "Check the calendar for free available time slots on a specific date to prevent double-booking.",
+                            description: "Check the calendar for free available time slots on a specific date (YYYY-MM-DD).",
                             dynamicParameters: [
                                 {
                                     name: "target_date",
                                     location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "The target date to check in YYYY-MM-DD format" },
+                                    schema: { type: "string", description: "Target date in YYYY-MM-DD" },
                                     required: true
                                 }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/availability" }
+                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/availability` }
                         }
                     },
                     {
@@ -101,25 +103,28 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                 {
                                     name: "start_time",
                                     location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-10-04T10:00:00Z" },
+                                    schema: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-04-08T15:00:00+05:30" },
                                     required: true
                                 },
                                 {
                                     name: "name",
                                     location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "Full name of caller" },
+                                    schema: { type: "string", description: "Full name" },
                                     required: true
                                 },
                                 {
                                     name: "phone",
                                     location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "Contact number" },
+                                    schema: { type: "string", description: "Phone number" },
                                     required: false
                                 }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/book" }
+                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/book` }
                         }
-                    },
+                    }
+                ]
+            })
+        });
                     {
                         temporaryTool: {
                             modelToolName: "update_appointment",
@@ -313,6 +318,8 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
 
         const finalVoice = reqVoice || agentData?.voice_preset || "Mark";
 
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        
         // 2. Create the Ultravox Session right now (no timeout risk because they just pressed the key!)
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
             method: 'POST',
@@ -330,7 +337,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
                     {
                         temporaryTool: {
                             modelToolName: "check_availability",
-                            description: "Check the calendar for free available time slots on a specific date to prevent double-booking.",
+                            description: "Check the calendar for free available time slots on a specific date (YYYY-MM-DD).",
                             dynamicParameters: [
                                 {
                                     name: "target_date",
@@ -339,7 +346,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
                                     required: true
                                 }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/availability" }
+                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/availability` }
                         }
                     },
                     {
@@ -350,7 +357,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
                                 {
                                     name: "start_time",
                                     location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-10-04T10:00:00Z" },
+                                    schema: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-04-08T15:00:00+05:30" },
                                     required: true
                                 },
                                 {
@@ -366,7 +373,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
                                     required: false
                                 }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/book" }
+                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/book` }
                         }
                     },
                     {
@@ -611,7 +618,7 @@ app.post('/api/integrations', async (req, res) => {
 app.post('/api/tools/availability', async (req, res) => {
     try {
         const { target_date } = req.body;
-        console.log("Check availability for:", target_date);
+        console.log(`[AI TOOL] Availability check for: ${target_date}`);
         
         let { data: agentData } = await supabase.from('agent_settings').select('*').limit(1).single();
         if (!agentData) {
