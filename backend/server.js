@@ -274,12 +274,13 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         // Redirect to the connection endpoint to defer Ultravox token generation!
         const serverBaseUrl = process.env.SERVER_BASE_URL || "https://saas-backend.xqnsvk.easypanel.host";
         const redirUrl = `${serverBaseUrl}/api/twilio/outbound-connect?toPhone=${encodeURIComponent(toPhone || '')}&voice=${encodeURIComponent(reqVoice || '')}&goal=${encodeURIComponent(reqGoal || '')}`;
+        const safeRedirUrl = redirUrl.replace(/&/g, '&amp;');
 
         const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <!-- Pause 10 seconds to wait out the mandatory Twilio Trial message before making the AI talk -->
     <Pause length="10"/>
-    <Redirect method="POST">${redirUrl}</Redirect>
+    <Redirect method="POST">${safeRedirUrl}</Redirect>
 </Response>`;
 
         res.set('Content-Type', 'text/xml');
