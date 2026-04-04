@@ -121,10 +121,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                             ],
                             http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/book` }
                         }
-                    }
-                ]
-            })
-        });
+                    },
                     {
                         temporaryTool: {
                             modelToolName: "update_appointment",
@@ -149,7 +146,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                     required: true
                                 }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/update" }
+                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/update` }
                         }
                     },
                     {
@@ -170,7 +167,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                     required: true
                                 }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/delete" }
+                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/delete` }
                         }
                     },
                     {
@@ -182,7 +179,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                 { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Positive, Negative, or Neutral" }, required: true },
                                 { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
                             ],
-                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/log_outcome" }
+                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/log_outcome` }
                         }
                     }
                 ]
