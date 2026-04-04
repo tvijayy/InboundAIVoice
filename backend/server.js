@@ -608,13 +608,11 @@ app.post('/api/tools/availability', async (req, res) => {
              agentData = { working_days: ["Mon", "Tue", "Wed", "Thu", "Fri"], open_time: '09:00', close_time: '18:00', non_working_dates: [] };
         }
         
-        // Parse date in IST context
-        const targetDateObj = new Date(target_date + 'T12:00:00+05:30');
+        // Determine day name (Timezone Independent Fix)
         const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        // Get day name in IST
-        const istOffset = 5.5 * 60 * 60 * 1000;
-        const istDate = new Date(targetDateObj.getTime() + istOffset - targetDateObj.getTimezoneOffset() * 60000);
-        const targetDayName = days[targetDateObj.getDay()];
+        // Using "YYYY-MM-DD" string with getUTCDay() ensures the day is ALWAYS consistent 
+        // regardless of server location.
+        const targetDayName = days[new Date(target_date).getUTCDay()];
         
         // 1. Check if date is manually blocked (holiday)
         const nonWorkingDates = agentData.non_working_dates || [];
@@ -809,7 +807,10 @@ app.post('/api/appointments/manual', async (req, res) => {
             source: 'manual'
         }]).select();
         
-        if (error) throw error;
+        if (error) {
+            console.error('Manual booking Supabase error:', error);
+            return res.status(500).json({ error: error.message || "Failed to book appointment." });
+        }
         console.log('Manual appointment booked:', data?.[0]?.id);
         res.json({ success: true, appointment: data[0] });
     } catch(err) {
