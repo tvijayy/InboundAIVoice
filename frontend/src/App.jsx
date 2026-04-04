@@ -144,53 +144,59 @@ export default function App() {
   return (
     <div className={`flex h-screen bg-background text-foreground font-sans overflow-hidden ${theme}`}>
       
-      {/* Global Toast */}
+      {/* Global Toast — Premium */}
       {toast && (
-        <div className="fixed top-5 right-5 z-50 fade-in">
-          <div className={cn("px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 border", 
-            toast.type === 'error' ? "bg-red-500/10 border-red-500/20 text-red-500" : "bg-green-500/10 border-green-500/20 text-green-500")}>
-            {toast.type === 'error' ? <XCircle size={18} /> : <CheckCircle size={18} />}
-            <span className="text-sm font-semibold">{toast.message}</span>
+        <div className="fixed top-5 right-5 z-50 slide-up">
+          <div className={cn("px-5 py-3.5 rounded-2xl shadow-premium-lg flex items-center gap-3 border backdrop-blur-xl", 
+            toast.type === 'error' ? "bg-red-500/10 border-red-500/20 text-red-400" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400")}>
+            {toast.type === 'error' ? <XCircle size={18} strokeWidth={2.5} /> : <CheckCircle size={18} strokeWidth={2.5} />}
+            <span className="text-sm font-semibold tracking-tight">{toast.message}</span>
           </div>
         </div>
       )}
 
-      {/* Sidebar */}
-      <aside className="w-[240px] min-w-[240px] bg-sidebar border-r border-border flex flex-col py-6 relative z-10">
-        <div className="flex items-center justify-between px-5 pb-6 border-b border-border">
+      {/* Sidebar — Premium */}
+      <aside className="w-[260px] min-w-[260px] bg-sidebar border-r border-border flex flex-col relative z-10">
+        {/* Brand Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-white">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <div className="w-9 h-9 bg-gradient-to-br from-primary to-purple-600 rounded-xl flex items-center justify-center text-white shadow-glow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" />
                 <path d="M8 12c0-2.21 1.79-4 4-4s4 1.79 4 4" />
                 <circle cx="12" cy="15" r="2" fill="currentColor" />
               </svg>
             </div>
             <div>
-              <h1 className="font-bold text-sm leading-tight">Azlon AI</h1>
-              <p className="text-[10px] text-muted-foreground">Voice SaaS</p>
+              <h1 className="font-extrabold text-[15px] leading-tight tracking-tight">Azlon AI</h1>
+              <p className="text-2xs text-muted-foreground font-medium tracking-wide">Voice Intelligence</p>
             </div>
           </div>
-          {/* Theme Toggle */}
-          <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="text-muted-foreground hover:text-foreground">
-             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="text-muted-foreground hover:text-foreground p-2 hover:bg-white/5 rounded-lg transition-all">
+             {theme === 'dark' ? <Sun size={16} strokeWidth={2} /> : <Moon size={16} strokeWidth={2} />}
           </button>
         </div>
-        <nav className="flex-1 overflow-y-auto py-4">
+
+        {/* Navigation */}
+        <nav className="flex-1 overflow-y-auto py-3 px-3">
           {navigation.map((item, idx) => {
-            if (item.section) return <div key={idx} className="px-4 py-2 mt-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-widest">{item.section}</div>;
+            if (item.section) return <div key={idx} className="px-3 py-2.5 mt-3 first:mt-0 text-2xs font-bold text-muted-foreground/60 uppercase tracking-ultra">{item.section}</div>;
             const Icon = item.icon;
             return (
               <button key={item.id} onClick={() => setActivePage(item.id)}
-                className={cn("w-full flex items-center gap-3 px-5 py-2.5 text-[13.5px] font-medium border-l-4 transition-all outline-none",
-                  activePage === item.id ? "text-primary border-primary bg-[rgba(108,99,255,0.18)]" : "text-muted-foreground border-transparent hover:text-foreground hover:bg-white/5")}>
-                <Icon size={16} />{item.label}
+                className={cn("nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all outline-none mb-0.5",
+                  activePage === item.id ? "active text-primary font-semibold" : "text-muted-foreground hover:text-foreground")}>
+                <Icon size={17} strokeWidth={activePage === item.id ? 2.5 : 1.8} className="transition-all" />{item.label}
               </button>
             );
           })}
         </nav>
-        <div className="px-5 pt-4 border-t border-border text-[11px] text-muted-foreground flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />Agent Online
+
+        {/* Status Footer */}
+        <div className="px-5 py-4 border-t border-border flex items-center gap-2.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 status-dot" />
+          <span className="text-xs text-muted-foreground font-medium">Agent Online</span>
+          <span className="ml-auto text-2xs text-muted-foreground/40 font-mono">v2.0</span>
         </div>
       </aside>
 
@@ -199,60 +205,60 @@ export default function App() {
 
         {/* ── DASHBOARD ── */}
         {activePage === 'dashboard' && (
-          <div className="space-y-6 fade-in">
-            <div className="flex justify-between items-start">
+          <div className="space-y-8 fade-in max-w-[1200px]">
+            <div className="flex justify-between items-end">
               <div>
-                <h2 className="text-2xl font-bold">Dashboard</h2>
-                <p className="text-sm text-muted-foreground mt-1">Real-time overview of your AI voice agent</p>
+                <h2 className="text-3xl font-extrabold tracking-tight">Dashboard</h2>
+                <p className="text-sm text-muted-foreground mt-1.5 font-medium">Real-time overview of your AI voice agent</p>
               </div>
-              <button onClick={fetchAll} className="flex items-center gap-2 text-xs text-muted-foreground hover:text-primary transition border border-border px-3 py-1.5 rounded-lg">
-                <RefreshCw size={12} /> Refresh
+              <button onClick={fetchAll} className="btn-premium flex items-center gap-2 text-xs text-muted-foreground hover:text-primary border border-border px-4 py-2 rounded-xl font-semibold bg-card">
+                <RefreshCw size={13} strokeWidth={2.5} /> Refresh
               </button>
             </div>
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-4 gap-5">
               {[
-                { label: 'Total Calls', value: callLogs.length, sub: 'All time' },
-                { label: 'Appointments', value: appointments.length, sub: 'Booked by AI' },
-                { label: 'Active Contacts', value: contacts.length, sub: 'In CRM' },
-                { label: 'Completed', value: callLogs.filter(c => c.status === 'completed').length, sub: 'Finished calls' }
+                { label: 'Total Calls', value: callLogs.length, sub: 'All time', color: 'from-violet-500/10 to-indigo-500/10', accent: 'text-violet-400' },
+                { label: 'Appointments', value: appointments.length, sub: 'Booked by AI', color: 'from-emerald-500/10 to-teal-500/10', accent: 'text-emerald-400' },
+                { label: 'Active Contacts', value: contacts.length, sub: 'In CRM', color: 'from-blue-500/10 to-cyan-500/10', accent: 'text-blue-400' },
+                { label: 'Completed', value: callLogs.filter(c => c.status === 'completed').length, sub: 'Finished calls', color: 'from-amber-500/10 to-orange-500/10', accent: 'text-amber-400' }
               ].map((stat, i) => (
-                <div key={i} className="bg-card border border-border rounded-xl p-5 hover:-translate-y-1 hover:shadow-lg transition-all duration-200">
-                  <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{stat.label}</div>
-                  <div className="text-3xl font-bold mt-2">{stat.value}</div>
-                  <div className="text-xs text-muted-foreground mt-1">{stat.sub}</div>
+                <div key={i} className={`stat-card bg-gradient-to-br ${stat.color} border border-border rounded-2xl p-6`}>
+                  <div className="text-2xs font-bold text-muted-foreground uppercase tracking-ultra">{stat.label}</div>
+                  <div className={`text-4xl font-black mt-3 tracking-tight ${stat.accent}`}>{stat.value}</div>
+                  <div className="text-xs text-muted-foreground mt-2 font-medium">{stat.sub}</div>
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-card border border-border rounded-xl p-5">
-                <h3 className="font-semibold text-sm mb-4 border-b border-border pb-3">Recent Calls</h3>
-                <table className="w-full text-left text-sm">
-                  <thead><tr className="border-b border-border"><th className="pb-2 text-muted-foreground font-medium text-xs">Number</th><th className="pb-2 text-muted-foreground font-medium text-xs">Status</th><th className="pb-2 text-muted-foreground font-medium text-xs">Date</th></tr></thead>
+            <div className="grid grid-cols-2 gap-5">
+              <div className="bg-card border border-border rounded-2xl p-6 shadow-premium">
+                <h3 className="font-bold text-sm mb-5 pb-3 border-b border-border flex items-center gap-2"><Phone size={14} strokeWidth={2.5} className="text-primary" /> Recent Calls</h3>
+                <table className="w-full text-left text-sm table-premium">
+                  <thead><tr className="border-b border-border"><th className="pb-3 text-muted-foreground font-semibold text-2xs uppercase tracking-ultra">Number</th><th className="pb-3 text-muted-foreground font-semibold text-2xs uppercase tracking-ultra">Status</th><th className="pb-3 text-muted-foreground font-semibold text-2xs uppercase tracking-ultra">Date</th></tr></thead>
                   <tbody>
                     {callLogs.slice(0, 5).map((c, i) => (
-                      <tr key={i} className="border-b border-border/40">
-                        <td className="py-2 font-mono text-primary text-xs">{c.direction === 'inbound' ? c.from_phone : c.to_phone}</td>
-                        <td className="py-2"><span className="bg-green-500/10 text-green-400 px-2 py-0.5 rounded-full text-[10px] uppercase">{c.status}</span></td>
-                        <td className="py-2 text-muted-foreground text-xs">{new Date(c.created_at).toLocaleDateString()}</td>
+                      <tr key={i} className="border-b border-border/30">
+                        <td className="py-3 font-mono text-primary text-xs font-semibold">{c.direction === 'inbound' ? c.from_phone : c.to_phone}</td>
+                        <td className="py-3"><span className="bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-lg text-2xs uppercase font-bold tracking-wide">{c.status}</span></td>
+                        <td className="py-3 text-muted-foreground text-xs font-medium">{new Date(c.created_at).toLocaleDateString()}</td>
                       </tr>
                     ))}
-                    {callLogs.length === 0 && <tr><td colSpan="3" className="text-center py-4 text-muted-foreground text-xs">No calls yet</td></tr>}
+                    {callLogs.length === 0 && <tr><td colSpan="3" className="text-center py-8 text-muted-foreground text-xs font-medium">No calls yet</td></tr>}
                   </tbody>
                 </table>
               </div>
-              <div className="bg-card border border-border rounded-xl p-5">
-                <h3 className="font-semibold text-sm mb-4 border-b border-border pb-3">Upcoming Appointments</h3>
-                <div className="space-y-2">
+              <div className="bg-card border border-border rounded-2xl p-6 shadow-premium">
+                <h3 className="font-bold text-sm mb-5 pb-3 border-b border-border flex items-center gap-2"><Calendar size={14} strokeWidth={2.5} className="text-primary" /> Upcoming Appointments</h3>
+                <div className="space-y-1">
                   {appointments.slice(0, 5).map((a, i) => (
-                    <div key={i} className="flex items-center justify-between py-2 border-b border-border/40">
+                    <div key={i} className="flex items-center justify-between py-3 border-b border-border/30 hover:bg-white/[0.02] transition-colors rounded-lg px-2 -mx-2">
                       <div>
-                        <div className="text-sm font-medium">{a.name}</div>
-                        <div className="text-xs text-muted-foreground font-mono">{a.phone}</div>
+                        <div className="text-sm font-semibold tracking-tight">{a.name}</div>
+                        <div className="text-xs text-muted-foreground font-mono mt-0.5">{a.phone}</div>
                       </div>
-                      <div className="text-xs text-primary text-right">{new Date(a.start_time).toLocaleString()}</div>
+                      <div className="text-xs text-primary text-right font-semibold">{new Date(a.start_time).toLocaleString()}</div>
                     </div>
                   ))}
-                  {appointments.length === 0 && <div className="text-center py-4 text-muted-foreground text-xs">No appointments yet</div>}
+                  {appointments.length === 0 && <div className="text-center py-8 text-muted-foreground text-xs font-medium">No appointments yet</div>}
                 </div>
               </div>
             </div>
@@ -261,43 +267,41 @@ export default function App() {
 
         {/* ── REPORTS ── */}
         {activePage === 'reports' && (
-          <div className="space-y-6 fade-in">
-             <div className="flex justify-between items-start">
-               <div>
-                 <h2 className="text-2xl font-bold">Analytics & Reports</h2>
-                 <p className="text-sm text-muted-foreground mt-1">Live business metrics and conversions.</p>
-               </div>
+          <div className="space-y-8 fade-in max-w-[1200px]">
+             <div>
+               <h2 className="text-3xl font-extrabold tracking-tight">Analytics & Reports</h2>
+               <p className="text-sm text-muted-foreground mt-1.5 font-medium">Live business metrics and conversions.</p>
              </div>
              {reports ? (
-               <div className="grid grid-cols-3 gap-6">
-                 <div className="bg-card border border-border rounded-xl p-5 shadow">
-                   <div className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Total Calls</div>
-                   <div className="text-4xl font-bold mt-3">{reports.totalCalls}</div>
-                   <div className="flex gap-4 mt-3 text-xs text-muted-foreground">
-                     <span className="bg-white/5 px-2 py-1 rounded">Inbound: {reports.inboundCalls}</span>
-                     <span className="bg-white/5 px-2 py-1 rounded">Outbound: {reports.outboundCalls}</span>
+               <div className="grid grid-cols-3 gap-5">
+                 <div className="stat-card bg-card border border-border rounded-2xl p-6 shadow-premium">
+                   <div className="text-2xs text-muted-foreground uppercase tracking-ultra font-bold">Total Calls</div>
+                   <div className="text-4xl font-black mt-3 tracking-tight">{reports.totalCalls}</div>
+                   <div className="flex gap-3 mt-4 text-xs text-muted-foreground">
+                     <span className="bg-violet-500/10 text-violet-400 px-3 py-1.5 rounded-lg font-semibold text-2xs">Inbound: {reports.inboundCalls}</span>
+                     <span className="bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded-lg font-semibold text-2xs">Outbound: {reports.outboundCalls}</span>
                    </div>
                  </div>
-                 <div className="bg-card border border-border rounded-xl p-5 shadow">
-                   <div className="text-xs text-muted-foreground uppercase tracking-widest font-bold">Call Duration</div>
-                   <div className="text-4xl font-bold mt-3">{reports.totalMinutes} <span className="text-lg text-muted-foreground font-medium">mins</span></div>
+                 <div className="stat-card bg-card border border-border rounded-2xl p-6 shadow-premium">
+                   <div className="text-2xs text-muted-foreground uppercase tracking-ultra font-bold">Call Duration</div>
+                   <div className="text-4xl font-black mt-3 tracking-tight">{reports.totalMinutes} <span className="text-lg text-muted-foreground font-semibold">mins</span></div>
                  </div>
-                 <div className="bg-card border border-border rounded-xl p-5 shadow relative overflow-hidden">
-                   <div className="absolute top-0 right-0 p-4 opacity-10"><Target size={60} /></div>
-                   <div className="text-xs text-muted-foreground uppercase tracking-widest font-bold relative z-10">AI Bookings</div>
-                   <div className="text-4xl font-bold mt-3 text-primary relative z-10">{reports.bookedAppointments}</div>
+                 <div className="stat-card bg-gradient-to-br from-primary/5 to-purple-500/5 border border-border rounded-2xl p-6 shadow-premium relative overflow-hidden">
+                   <div className="absolute top-0 right-0 p-4 opacity-5"><Target size={80} strokeWidth={1} /></div>
+                   <div className="text-2xs text-muted-foreground uppercase tracking-ultra font-bold relative z-10">AI Bookings</div>
+                   <div className="text-4xl font-black mt-3 text-primary relative z-10 tracking-tight">{reports.bookedAppointments}</div>
                  </div>
-                 <div className="col-span-3 bg-card border border-border rounded-xl p-6 shadow">
-                   <h3 className="font-bold text-sm tracking-wide">Call Sentiment Analysis</h3>
-                   <div className="flex w-full h-8 rounded-lg overflow-hidden shrink-0 mt-6">
-                     <div style={{width: `${reports.totalCalls ? (reports.sentiment.positive/reports.totalCalls)*100 : 0}%`}} className="bg-green-500 h-full flex items-center justify-center text-[10px] font-bold text-white transition-all">{reports.sentiment.positive > 0 && reports.sentiment.positive}</div>
-                     <div style={{width: `${reports.totalCalls ? (reports.sentiment.neutral/reports.totalCalls)*100 : 100}%`}} className="bg-muted h-full flex items-center justify-center text-[10px] font-bold text-white transition-all">{reports.sentiment.neutral > 0 && reports.sentiment.neutral}</div>
-                     <div style={{width: `${reports.totalCalls ? (reports.sentiment.negative/reports.totalCalls)*100 : 0}%`}} className="bg-red-500 h-full flex items-center justify-center text-[10px] font-bold text-white transition-all">{reports.sentiment.negative > 0 && reports.sentiment.negative}</div>
+                 <div className="col-span-3 bg-card border border-border rounded-2xl p-6 shadow-premium">
+                   <h3 className="font-bold text-sm tracking-tight">Call Sentiment Analysis</h3>
+                   <div className="flex w-full h-10 rounded-xl overflow-hidden shrink-0 mt-6">
+                     <div style={{width: `${reports.totalCalls ? (reports.sentiment.positive/reports.totalCalls)*100 : 0}%`}} className="bg-emerald-500 h-full flex items-center justify-center text-2xs font-bold text-white transition-all">{reports.sentiment.positive > 0 && reports.sentiment.positive}</div>
+                     <div style={{width: `${reports.totalCalls ? (reports.sentiment.neutral/reports.totalCalls)*100 : 100}%`}} className="bg-muted h-full flex items-center justify-center text-2xs font-bold text-muted-foreground transition-all">{reports.sentiment.neutral > 0 && reports.sentiment.neutral}</div>
+                     <div style={{width: `${reports.totalCalls ? (reports.sentiment.negative/reports.totalCalls)*100 : 0}%`}} className="bg-red-500 h-full flex items-center justify-center text-2xs font-bold text-white transition-all">{reports.sentiment.negative > 0 && reports.sentiment.negative}</div>
                    </div>
-                   <div className="flex gap-4 mt-4 text-[11px] text-muted-foreground justify-center font-medium">
-                     <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>Positive</span>
-                     <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-muted"></span>Neutral</span>
-                     <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>Negative</span>
+                   <div className="flex gap-6 mt-5 text-xs text-muted-foreground justify-center font-semibold">
+                     <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-emerald-500"></span>Positive</span>
+                     <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-muted"></span>Neutral</span>
+                     <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-red-500"></span>Negative</span>
                    </div>
                  </div>
                </div>
@@ -314,8 +318,8 @@ export default function App() {
           <div className="space-y-6 fade-in">
             <div className="flex justify-between items-start">
               <div>
-                <h2 className="text-2xl font-bold">Internal AI Calendar</h2>
-                <p className="text-sm text-muted-foreground mt-1">Live view of all AI-booked appointments</p>
+                <h2 className="text-3xl font-extrabold tracking-tight">Internal AI Calendar</h2>
+                <p className="text-sm text-muted-foreground mt-1.5 font-medium">Live view of all AI-booked appointments</p>
               </div>
               <div className="flex gap-2">
                 <button onClick={() => fetchSlotsForDate(calendarDate)} className="flex items-center gap-2 text-xs border border-border px-3 py-1.5 rounded-lg hover:text-primary transition bg-card shadow-sm">
@@ -488,9 +492,9 @@ export default function App() {
 
         {/* ── INBOUND AGENT ── */}
         {activePage === 'agent' && (
-          <div className="space-y-6 fade-in max-w-4xl mx-auto">
-            <div><h2 className="text-2xl font-bold">Inbound Agent</h2><p className="text-sm text-muted-foreground mt-1">Configure your main AI voice agent that handles inbound calls</p></div>
-            <div className="bg-card border border-border rounded-xl p-6 shadow-xl">
+          <div className="space-y-8 fade-in max-w-4xl mx-auto">
+            <div><h2 className="text-3xl font-extrabold tracking-tight">Inbound Agent</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">Configure your main AI voice agent that handles inbound calls</p></div>
+            <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg">
               <form onSubmit={async (e) => {
                 e.preventDefault();
                 const btn = document.getElementById('save-agent-btn'); btn.innerText = 'Saving...';
@@ -563,8 +567,8 @@ export default function App() {
         {/* ── API CREDENTIALS ── */}
         {activePage === 'credentials' && (
           <div className="space-y-6 fade-in max-w-3xl mx-auto">
-            <div><h2 className="text-2xl font-bold">API Credentials</h2><p className="text-sm text-muted-foreground mt-1">Store your service keys securely in Supabase</p></div>
-            <div className="bg-card border border-border rounded-xl p-6 shadow-xl">
+            <div><h2 className="text-3xl font-extrabold tracking-tight">API Credentials</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">Store your service keys securely in Supabase</p></div>
+            <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg">
               <form onSubmit={async (e) => {
                 e.preventDefault();
                 const btn = document.getElementById('save-cred-btn'); btn.innerText = 'Saving...';
@@ -605,10 +609,10 @@ export default function App() {
         {activePage === 'logs' && (
           <div className="space-y-6 fade-in max-w-[1400px] mx-auto w-full">
             <div className="flex justify-between items-start">
-              <h2 className="text-2xl font-bold">Call Logs & Telemetry</h2>
+              <h2 className="text-3xl font-extrabold tracking-tight">Call Logs & Telemetry</h2>
               <button onClick={() => fetch(`${API_BASE}/api/calls`).then(r=>r.json()).then(d=>{if(d.success)setCallLogs(d.calls)})} className="flex items-center gap-2 text-xs border border-border px-3 py-1.5 rounded-lg hover:text-primary transition"><RefreshCw size={11}/> Refresh</button>
             </div>
-            <div className="bg-card border border-border rounded-xl shadow-xl overflow-hidden">
+            <div className="bg-card border border-border rounded-2xl shadow-premium-lg overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm whitespace-nowrap">
                   <thead>
@@ -661,9 +665,9 @@ export default function App() {
 
         {/* ── CRM CONTACTS (Existing basic contacts) ── */}
         {activePage === 'crm' && (
-           <div className="space-y-6 fade-in max-w-4xl mx-auto">
-             <h2 className="text-2xl font-bold">Standard Contacts</h2>
-             <div className="bg-card border border-border rounded-xl p-6 shadow-xl">
+           <div className="space-y-8 fade-in max-w-4xl mx-auto">
+             <h2 className="text-3xl font-extrabold tracking-tight">Standard Contacts</h2>
+             <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg">
                {/* Hidden for brevity, just keeping table alive */}
                <div className="text-sm text-muted-foreground mb-4">Please use the new "Lead CRM" sidebar for the upgraded experience.</div>
              </div>
@@ -674,7 +678,7 @@ export default function App() {
         {activePage === 'leads' && (
           <div className="space-y-6 fade-in max-w-6xl mx-auto">
             <div className="flex justify-between">
-              <div><h2 className="text-2xl font-bold">Lead Management</h2><p className="text-sm text-muted-foreground mt-1">AI-enriched CRM specifically built for real estate tracking</p></div>
+              <div><h2 className="text-3xl font-extrabold tracking-tight">Lead Management</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">AI-enriched CRM specifically built for real estate tracking</p></div>
             </div>
             
             <div className="grid grid-cols-4 gap-4 mb-6">
@@ -686,7 +690,7 @@ export default function App() {
               ))}
             </div>
 
-            <div className="bg-card border border-border rounded-xl shadow-xl overflow-hidden">
+            <div className="bg-card border border-border rounded-2xl shadow-premium-lg overflow-hidden">
               <div className="p-4 border-b border-border bg-sidebar/30 flex justify-between items-center">
                  <h3 className="font-semibold text-sm">Lead Database</h3>
                  <button className="bg-primary text-white px-3 py-1.5 rounded text-xs font-semibold" onClick={()=>showToast('Wait for AI to qualify!','success')}>+ Manual Lead</button>
@@ -711,9 +715,9 @@ export default function App() {
 
         {/* ── KNOWLEDGE BASE ── */}
         {activePage === 'knowledge_base' && (
-          <div className="space-y-6 fade-in max-w-4xl mx-auto">
-            <div><h2 className="text-2xl font-bold">Knowledge Base & RAG</h2><p className="text-sm text-muted-foreground mt-1">Upload context for your AI Agent so it learns facts, pricing, and FAQs</p></div>
-            <div className="bg-card border border-border rounded-xl p-6 shadow-xl">
+          <div className="space-y-8 fade-in max-w-4xl mx-auto">
+            <div><h2 className="text-3xl font-extrabold tracking-tight">Knowledge Base & RAG</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">Upload context for your AI Agent so it learns facts, pricing, and FAQs</p></div>
+            <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg">
               <form onSubmit={async (e) => {
                 e.preventDefault();
                 const btn = e.target.querySelector('button'); btn.innerText = 'Uploading...';
@@ -760,9 +764,9 @@ export default function App() {
 
         {/* ── OUTBOUND CAMPAIGNS ── */}
         {activePage === 'campaigns' && (
-          <div className="space-y-6 fade-in max-w-4xl mx-auto">
-            <div><h2 className="text-2xl font-bold">Outbound Voice Campaigns</h2><p className="text-sm text-muted-foreground mt-1">Upload a CSV list to automatically dial contacts sequentially</p></div>
-            <div className="bg-card border border-border rounded-xl p-6 shadow-xl space-y-4">
+          <div className="space-y-8 fade-in max-w-4xl mx-auto">
+            <div><h2 className="text-3xl font-extrabold tracking-tight">Outbound Voice Campaigns</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">Upload a CSV list to automatically dial contacts sequentially</p></div>
+            <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg space-y-4">
               <label className="block text-xs font-bold text-muted-foreground uppercase mb-2">Campaign Setup</label>
               
               <div className="grid grid-cols-2 gap-4">
@@ -875,11 +879,11 @@ export default function App() {
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Accepted Formats — CSV, Excel, or Google Sheets</p>
                     <div className="font-mono text-[10px] text-muted-foreground leading-relaxed bg-sidebar/30 rounded-md p-2.5 border border-border/50">
                       <p className="text-foreground/70 mb-1">name, phone</p>
-                      <p>John Doe, +14155551234</p>
-                      <p>Jane Smith, +442071234567</p>
-                      <p>Kumar R, +919876543210</p>
+                      <p>John Doe, 14155551234</p>
+                      <p>Jane Smith, 442071234567</p>
+                      <p>Kumar R, 919876543210</p>
                     </div>
-                    <p className="text-[9px] text-muted-foreground mt-2 leading-relaxed">Header row is optional. Each row needs at least a phone number with country code (+1, +44, +91, etc). Name column is optional. Excel uses the first sheet.</p>
+                    <p className="text-[9px] text-muted-foreground mt-2 leading-relaxed">Just type country code + number — <strong>no "+" needed</strong>. We auto-add it. Header row is optional. Name column is optional. Excel uses the first sheet.</p>
                   </div>
                   <div className="bg-background border border-border rounded-lg p-3">
                     <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Or Import from Google Sheets</p>
@@ -987,7 +991,7 @@ export default function App() {
       {/* ── MODALS ── */}
       {viewSummaryModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center fade-in p-4">
-          <div className="bg-card w-full max-w-2xl rounded-2xl shadow-2xl border border-border flex flex-col max-h-[85vh]">
+          <div className="bg-card w-full max-w-2xl rounded-2xl shadow-premium-lg border border-border flex flex-col max-h-[85vh]">
             <div className="p-6 border-b border-border flex justify-between items-center bg-sidebar/50 rounded-t-2xl">
               <div>
                 <h3 className="font-bold text-lg">Call Summary & Transcript</h3>
@@ -1009,7 +1013,7 @@ export default function App() {
 
       {calendarModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center fade-in p-4">
-          <div className="bg-card w-full max-w-md rounded-2xl shadow-2xl border border-border flex flex-col">
+          <div className="bg-card w-full max-w-md rounded-2xl shadow-premium-lg border border-border flex flex-col">
             <div className="p-6 border-b border-border flex justify-between items-center bg-sidebar/50 rounded-t-2xl">
               <div>
                  <h3 className="font-bold text-lg">Manual Booking</h3>
@@ -1055,7 +1059,7 @@ export default function App() {
 
       {manualLeadModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center fade-in p-4">
-          <div className="bg-card w-full max-w-md rounded-2xl shadow-2xl border border-border flex flex-col">
+          <div className="bg-card w-full max-w-md rounded-2xl shadow-premium-lg border border-border flex flex-col">
             <div className="p-6 border-b border-border flex justify-between items-center bg-sidebar/50 rounded-t-2xl">
               <h3 className="font-bold text-lg">Add CRM Target</h3>
               <button onClick={() => setManualLeadModal(false)} className="text-muted-foreground hover:text-white bg-white/5 p-2 rounded-lg transition-colors"><XCircle size={20}/></button>
