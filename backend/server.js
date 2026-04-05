@@ -610,11 +610,14 @@ app.post('/api/twilio/status', async (req, res) => {
                     if (isNegative) {
                         finalCategory = "Negative";
                         finalSentiment = derivedSentimentSnippet.substring(0, 80);
+                        console.log(`[Failsafe Correction] Detected NEGATIVE keywords in summary for ${callSid}. Overwriting Neutral.`);
                     } else if (isPositive) {
                         finalCategory = "Positive";
                         finalSentiment = derivedSentimentSnippet.substring(0, 80);
+                        console.log(`[Failsafe Correction] Detected POSITIVE keywords in summary for ${callSid}. Overwriting Neutral.`);
                     } else {
                         finalCategory = "Neutral";
+                        finalSentiment = finalSentiment || "Neutral";
                     }
                 }
 
@@ -627,7 +630,7 @@ app.post('/api/twilio/status', async (req, res) => {
                     transcript: "Feature pending native Ultravox messages mapping."
                 }).eq('twilio_sid', callSid);
                 
-                console.log(`Successfully saved AI Summary and Failsafe Sentiment for Call: ${callSid}`);
+                console.log(`Successfully saved AI Summary and Failsafe Sentiment [${finalCategory}] for Call: ${callSid}`);
             } catch (err) {
                 console.error("Failed capturing AI Summary in background:", err);
             }
