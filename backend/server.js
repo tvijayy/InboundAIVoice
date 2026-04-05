@@ -66,7 +66,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
         
         // Emphasize personality and rules
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
-        finalPrompt += "\n\nULTRA-IMPORTANT - EMOTIONAL EVALUATION: Monitor the user's mood constantly. If they express strong frustration, anger, or extreme satisfaction, you MUST call 'log_call_outcome' IMMEDIATELY during the call while they are still on the line. Use a short descriptive phrase for 'sentiment' (e.g. 'Angry and frustrated with previous service', 'Extremely interested in booking') and choose the corresponding 'category' (Positive, Negative, or Neutral).";
+        finalPrompt += "\n\nULTRA-IMPORTANT - EMOTIONAL EVALUATION: Monitor the user's mood constantly. If they express strong emotion, you MUST call 'log_call_outcome' IMMEDIATELY. \nSTRICT RULES:\n1. 'sentiment' MUST be EXACTLY 1 or 2 words (e.g. 'Angry', 'Very Happy', 'Frustrated', 'Interested').\n2. 'category' MUST be: Positive, Negative, or Neutral.";
 
         // Force https for Ultravox tool callbacks as required by their API
         const baseUrl = `https://${req.get('host')}`;
@@ -329,7 +329,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
         if (reqGoal) finalPrompt += `\n\n[PRIMARY MISSION GOAL]: ${reqGoal}`;
-        finalPrompt += "\n\nULTRA-IMPORTANT - EMOTIONAL EVALUATION: Monitor the lead's mood constantly. If they express strong frustration, anger, or extreme satisfaction, you MUST call 'log_call_outcome' IMMEDIATELY during the call while they are still on the line. Use a short descriptive phrase for 'sentiment' (e.g. 'Very angry and wants no more calls', 'Highly interested, wants follow up') and choose the corresponding 'category' (Positive, Negative, or Neutral).";
+        finalPrompt += "\n\nULTRA-IMPORTANT - EMOTIONAL EVALUATION: Monitor the lead's mood constantly. If they express strong emotion, you MUST call 'log_call_outcome' IMMEDIATELY. \nSTRICT RULES:\n1. 'sentiment' MUST be EXACTLY 1 or 2 words (e.g. 'Angry', 'Very Happy', 'Frustrated', 'Interested').\n2. 'category' MUST be: Positive, Negative, or Neutral.";
 
         const rawVoice = reqVoice || agentData?.voice_preset || "Mark";
         const validVoices = ["Alice", "Jessica", "Kelsey", "Priya", "Lulu", "Mark", "Victor", "Vitya", "Zdenek"];
@@ -598,6 +598,16 @@ app.post('/api/twilio/status', async (req, res) => {
                 const isNegative = negativeWords.some(word => lowerSummary.includes(word));
                 const isPositive = positiveWords.some(word => lowerSummary.includes(word));
 
+                // Mapping: Pick a single best word for the Reason if failsafe is used
+                let mappedReason = "Neutral";
+                if (lowerSummary.includes("frustrat")) mappedReason = "Frustrated";
+                else if (lowerSummary.includes("angr")) mappedReason = "Angry";
+                else if (lowerSummary.includes("disappoint")) mappedReason = "Disappointed";
+                else if (lowerSummary.includes("booked")) mappedReason = "Booked";
+                else if (lowerSummary.includes("interest")) mappedReason = "Interested";
+                else if (isPositive) mappedReason = "Positive";
+                else if (isNegative) mappedReason = "Negative";
+
                 // Only apply failsafe if current category is Neutral, missing, or "Neutral" string
                 const { data: currCall } = await supabase.from('calls').select('sentiment_category, sentiment').eq('twilio_sid', callSid).single();
                 
@@ -609,12 +619,12 @@ app.post('/api/twilio/status', async (req, res) => {
                 if (isNeutral) {
                     if (isNegative) {
                         finalCategory = "Negative";
-                        finalSentiment = derivedSentimentSnippet.substring(0, 80);
-                        console.log(`[Failsafe Correction] Detected NEGATIVE keywords in summary for ${callSid}. Overwriting Neutral.`);
+                        finalSentiment = mappedReason;
+                        console.log(`[Failsafe Correction] Detected NEGATIVE keywords in summary for ${callSid}. Overwriting Neutral with '${mappedReason}'.`);
                     } else if (isPositive) {
                         finalCategory = "Positive";
-                        finalSentiment = derivedSentimentSnippet.substring(0, 80);
-                        console.log(`[Failsafe Correction] Detected POSITIVE keywords in summary for ${callSid}. Overwriting Neutral.`);
+                        finalSentiment = mappedReason;
+                        console.log(`[Failsafe Correction] Detected POSITIVE keywords in summary for ${callSid}. Overwriting Neutral with '${mappedReason}'.`);
                     } else {
                         finalCategory = "Neutral";
                         finalSentiment = finalSentiment || "Neutral";
@@ -625,7 +635,7 @@ app.post('/api/twilio/status', async (req, res) => {
                     status: 'completed',
                     duration_seconds: callDuration,
                     ai_summary: summary,
-                    sentiment: finalSentiment || derivedSentimentSnippet.substring(0, 80),
+                    sentiment: finalSentiment || mappedReason,
                     sentiment_category: finalCategory,
                     transcript: "Feature pending native Ultravox messages mapping."
                 }).eq('twilio_sid', callSid);
@@ -835,14 +845,14 @@ app.post('/api/tools/delete', async (req, res) => {
 
 app.post('/api/tools/log_outcome', async (req, res) => {
     try {
-        const { phone, sentiment, category, status } = req.body;
-        console.log("Ultravox AI triggered log_call_outcome for:", phone, sentiment, category, status);
+        const cleanPhone = phone.replace(/\D/g, '');
+        console.log("Ultravox AI triggered log_call_outcome for:", phone, "Cleaned:", cleanPhone);
         
         // Find the most recent active or completed call for this phone number
         const { data: calls } = await supabase
             .from('calls')
             .select('id, to_phone, from_phone')
-            .or(`from_phone.eq.${phone},to_phone.eq.${phone}`)
+            .or(`from_phone.ilike.%${cleanPhone}%,to_phone.ilike.%${cleanPhone}%`)
             .order('created_at', { ascending: false })
             .limit(1);
 
