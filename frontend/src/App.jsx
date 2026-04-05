@@ -642,9 +642,9 @@ export default function App() {
                           <button onClick={() => setViewSummaryModal(c)} className="bg-white/5 hover:bg-white/10 text-xs px-3 py-1.5 rounded-full border border-border transition-colors">View Data</button>
                         </td>
                         <td className="py-4 px-5">
-                           {c.sentiment === 'Positive' ? <span className="bg-green-500/10 text-green-400 px-2.5 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider">Positive</span> : 
-                            c.sentiment === 'Negative' ? <span className="bg-red-500/10 text-red-400 px-2.5 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider">Negative</span> :
-                            <span className="bg-gray-500/10 text-gray-400 px-2.5 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider">{c.sentiment || 'Neutral'}</span>}
+                           <span className={cn("px-2.5 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider", (c.sentiment_category || c.sentiment) === 'Positive' ? "bg-green-500/10 text-green-400" : (c.sentiment_category || c.sentiment) === 'Negative' ? "bg-red-500/10 text-red-400" : "bg-gray-500/10 text-gray-400")}>
+                             {c.sentiment || 'Neutral'}
+                           </span>
                         </td>
                         <td className="py-4 px-5">
                           <span className={cn("px-2.5 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider",
