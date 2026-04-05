@@ -72,10 +72,9 @@ app.post('/api/twilio/inbound', async (req, res) => {
         const baseUrl = `https://${req.get('host')}`;
         console.log(`[Ultravox] Creating session with tools at: ${baseUrl}`);
         
-        const rawVoice = (agentData?.voice_preset || "mark").toLowerCase();
-        // Guaranteed fallback if an invalid voice was somehow selected
-        const validVoices = ["alice", "jessica", "kelsey", "priya", "lulu", "mark", "victor", "vitya", "zdenek"];
-        const finalVoice = validVoices.includes(rawVoice) ? rawVoice : "mark";
+        const rawVoice = agentData?.voice_preset || "Mark";
+        const validVoices = ["Alice", "Jessica", "Kelsey", "Priya", "Lulu", "Mark", "Victor", "Vitya", "Zdenek"];
+        const finalVoice = validVoices.includes(rawVoice) ? rawVoice : "Mark";
 
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
             method: 'POST',
@@ -231,6 +230,11 @@ app.post('/api/twilio/inbound', async (req, res) => {
 
     } catch (error) {
         console.error("Ultravox Connection Error:", error);
+        // If it was a 400 error from Ultravox, log the body to see WHY they rejected it
+        if (error.response) {
+            const body = await error.response.text();
+            console.error("Ultravox API Rejected Request:", body);
+        }
         res.status(500).send("Error connecting AI Agent");
     }
 });
@@ -327,9 +331,9 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         if (reqGoal) finalPrompt += `\n\n[PRIMARY MISSION GOAL]: ${reqGoal}`;
         finalPrompt += "\n\nDYNAMIC SENTIMENT PROTOCOL: At the end of the call, use 'log_call_outcome'. Choose a highly descriptive single word for 'sentiment' (e.g. Relieved, Frustrated, Impatient, Ecstatic, Hesitant) and the corresponding 'category' (Positive, Negative, or Neutral).";
 
-        const rawVoice = (reqVoice || agentData?.voice_preset || "mark").toLowerCase();
-        const validVoices = ["alice", "jessica", "kelsey", "priya", "lulu", "mark", "victor", "vitya", "zdenek"];
-        const finalVoice = validVoices.includes(rawVoice) ? rawVoice : "mark";
+        const rawVoice = reqVoice || agentData?.voice_preset || "Mark";
+        const validVoices = ["Alice", "Jessica", "Kelsey", "Priya", "Lulu", "Mark", "Victor", "Vitya", "Zdenek"];
+        const finalVoice = validVoices.includes(rawVoice) ? rawVoice : "Mark";
 
         const baseUrl = `https://${req.get('host')}`;
         
