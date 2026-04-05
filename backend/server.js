@@ -682,15 +682,23 @@ app.post('/api/tools/availability', async (req, res) => {
         
         // Match exact times in IST
         let bookedTimes = [];
-        if (existingApps) {
-            bookedTimes = existingApps.map(a => {
-                // Return exactly "HH:mm" in IST from the stored ISO string
-                return new Date(a.start_time).toLocaleTimeString('en-GB', { 
-                    timeZone: 'Asia/Kolkata', 
-                    hour: '2-digit', 
-                    minute: '2-digit' 
-                });
-            });
+        if (existingApps && Array.isArray(existingApps)) {
+            bookedTimes = existingApps
+                .filter(a => a && a.start_time)
+                .map(a => {
+                    const d = new Date(a.start_time);
+                    if (isNaN(d.getTime())) return null;
+                    // Robust IST time extraction (HH:mm)
+                    const istStr = d.toLocaleString('en-GB', { 
+                        timeZone: 'Asia/Kolkata', 
+                        hour: '2-digit', 
+                        minute: '2-digit',
+                        hour12: false 
+                    });
+                    // Handle cases where locale returns "HH.mm" instead of "HH:mm"
+                    return istStr.replace('.', ':');
+                })
+                .filter(t => t !== null);
         }
         
         let freeSlots = allSlots.filter(slot => {
