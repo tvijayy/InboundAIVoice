@@ -644,21 +644,25 @@ export default function App() {
                         </td>
                         <td className="py-4 px-5 text-center">
                            <button 
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const callId = c.id || i;
                               setExpandedSentiment(prev => ({
                                 ...prev,
-                                [c.id]: !prev[c.id]
+                                [callId]: !prev[callId]
                               }));
                             }}
                             className={cn(
-                              "px-3 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider transition-all hover:scale-105 active:scale-95 cursor-pointer border",
-                              (c.sentiment_category || c.sentiment) === 'Positive' ? "bg-green-500/10 text-green-400 border-green-500/20" : 
-                              (c.sentiment_category || c.sentiment) === 'Negative' ? "bg-red-500/10 text-red-400 border-red-500/20" : 
-                              "bg-gray-500/10 text-gray-400 border-gray-500/20"
+                              "px-3 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider transition-all hover:scale-105 active:scale-95 cursor-pointer border shadow-sm",
+                              (c.sentiment_category === 'Positive') ? "bg-green-500/10 text-green-400 border-green-500/20" : 
+                              (c.sentiment_category === 'Negative') ? "bg-red-500/10 text-red-400 border-red-500/20" : 
+                              "bg-muted text-muted-foreground border-border"
                             )}
                             title="Click to see real reason"
                            >
-                             {expandedSentiment[c.id] ? (c.sentiment || 'No detail') : (c.sentiment_category || c.sentiment || 'Neutral')}
+                             {expandedSentiment[c.id || i] 
+                               ? (c.sentiment || (c.ai_summary ? c.ai_summary.substring(0, 40) + '...' : 'No detail')) 
+                               : (c.sentiment_category || 'Neutral')}
                            </button>
                         </td>
                         <td className="py-4 px-5">
