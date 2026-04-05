@@ -72,8 +72,10 @@ app.post('/api/twilio/inbound', async (req, res) => {
         const baseUrl = `https://${req.get('host')}`;
         console.log(`[Ultravox] Creating session with tools at: ${baseUrl}`);
         
-        const rawVoice = agentData?.voice_preset || "Mark";
-        const finalVoice = (rawVoice === "Tanya" || rawVoice === "Adam" || rawVoice === "Emily") ? "Priya" : rawVoice;
+        const rawVoice = (agentData?.voice_preset || "mark").toLowerCase();
+        // Guaranteed fallback if an invalid voice was somehow selected
+        const validVoices = ["alice", "jessica", "kelsey", "priya", "lulu", "mark", "victor", "vitya", "zdenek"];
+        const finalVoice = validVoices.includes(rawVoice) ? rawVoice : "mark";
 
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
             method: 'POST',
@@ -325,8 +327,9 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         if (reqGoal) finalPrompt += `\n\n[PRIMARY MISSION GOAL]: ${reqGoal}`;
         finalPrompt += "\n\nDYNAMIC SENTIMENT PROTOCOL: At the end of the call, use 'log_call_outcome'. Choose a highly descriptive single word for 'sentiment' (e.g. Relieved, Frustrated, Impatient, Ecstatic, Hesitant) and the corresponding 'category' (Positive, Negative, or Neutral).";
 
-        const rawVoice = reqVoice || agentData?.voice_preset || "Mark";
-        const finalVoice = (rawVoice === "Tanya" || rawVoice === "Adam" || rawVoice === "Emily") ? "Priya" : rawVoice;
+        const rawVoice = (reqVoice || agentData?.voice_preset || "mark").toLowerCase();
+        const validVoices = ["alice", "jessica", "kelsey", "priya", "lulu", "mark", "victor", "vitya", "zdenek"];
+        const finalVoice = validVoices.includes(rawVoice) ? rawVoice : "mark";
 
         const baseUrl = `https://${req.get('host')}`;
         
@@ -689,21 +692,19 @@ app.post('/api/tools/availability', async (req, res) => {
                     const d = new Date(a.start_time);
                     if (isNaN(d.getTime())) return null;
                     // Robust IST time extraction (HH:mm)
-                    const istStr = d.toLocaleString('en-GB', { 
+                    return d.toLocaleString('en-GB', { 
                         timeZone: 'Asia/Kolkata', 
                         hour: '2-digit', 
                         minute: '2-digit',
                         hour12: false 
-                    });
-                    // Handle cases where locale returns "HH.mm" instead of "HH:mm"
-                    return istStr.replace('.', ':');
+                    }).replace('.', ':');
                 })
                 .filter(t => t !== null);
         }
         
         let freeSlots = allSlots.filter(slot => {
-            const slotTime = slot.split('T')[1].substring(0, 5); // Extraction "09:00"
-            return !bookedTimes.includes(slotTime);
+            const slotTimePart = slot.split('T')[1].substring(0, 5); // Extract "HH:mm"
+            return !bookedTimes.includes(slotTimePart);
         });
         
         console.log(`Availability for ${target_date}: ${freeSlots.length} free slots (${openTime}-${closeTime} IST)`);
