@@ -66,7 +66,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
         
         // Emphasize personality and rules
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
-        finalPrompt += "\n\nDYNAMIC SENTIMENT PROTOCOL: At the end of the call, use 'log_call_outcome'. Choose a highly descriptive single word for 'sentiment' (e.g. Relieved, Frustrated, Impatient, Ecstatic, Hesitant) and the corresponding 'category' (Positive, Negative, or Neutral).";
+        finalPrompt += "\n\nULTRA-IMPORTANT - EMOTIONAL EVALUATION: Monitor the user's mood constantly. If they express strong frustration, anger, or extreme satisfaction, you MUST call 'log_call_outcome' IMMEDIATELY during the call while they are still on the line. Use a short descriptive phrase for 'sentiment' (e.g. 'Angry and frustrated with previous service', 'Extremely interested in booking') and choose the corresponding 'category' (Positive, Negative, or Neutral).";
 
         // Force https for Ultravox tool callbacks as required by their API
         const baseUrl = `https://${req.get('host')}`;
@@ -329,7 +329,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
         if (reqGoal) finalPrompt += `\n\n[PRIMARY MISSION GOAL]: ${reqGoal}`;
-        finalPrompt += "\n\nDYNAMIC SENTIMENT PROTOCOL: At the end of the call, use 'log_call_outcome'. Choose a highly descriptive single word for 'sentiment' (e.g. Relieved, Frustrated, Impatient, Ecstatic, Hesitant) and the corresponding 'category' (Positive, Negative, or Neutral).";
+        finalPrompt += "\n\nULTRA-IMPORTANT - EMOTIONAL EVALUATION: Monitor the lead's mood constantly. If they express strong frustration, anger, or extreme satisfaction, you MUST call 'log_call_outcome' IMMEDIATELY during the call while they are still on the line. Use a short descriptive phrase for 'sentiment' (e.g. 'Very angry and wants no more calls', 'Highly interested, wants follow up') and choose the corresponding 'category' (Positive, Negative, or Neutral).";
 
         const rawVoice = reqVoice || agentData?.voice_preset || "Mark";
         const validVoices = ["Alice", "Jessica", "Kelsey", "Priya", "Lulu", "Mark", "Victor", "Vitya", "Zdenek"];
@@ -396,10 +396,11 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
                     {
                         temporaryTool: {
                             modelToolName: "log_call_outcome",
-                            description: "Evaluate the sentiment (Positive/Negative/Neutral) and the status (Resolved/Follow Up/Booked/Missed) right before hanging up.",
+                            description: "Record the final outcome of the call including a descriptive reason and its overall emotional category.",
                             dynamicParameters: [
-                                { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The caller's exact phone number" }, required: true },
-                                { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Positive, Negative, or Neutral" }, required: true },
+                                { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The lead's exact phone number" }, required: true },
+                                { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "A short descriptive reason (e.g. 'Disappointed with service', 'Happy to book')" }, required: true },
+                                { name: "category", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Must be one of: Positive, Negative, or Neutral" }, required: true },
                                 { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
                             ],
                             http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/log_outcome" }
@@ -585,14 +586,39 @@ app.post('/api/twilio/status', async (req, res) => {
                 const uvData = await uvRes.json();
 
                 // Save to Supabase
+                const summary = uvData.summary || "No summary available.";
+                let derivedCategory = "Neutral";
+                let derivedSentimentSnippet = summary.split('.')[0]; // Take first sentence as detail if missing
+
+                // Failsafe: Keyword scan for sentiment if not already set
+                const negativeWords = ["frustrat", "angr", "angry", "disappoint", "complaint", "unhappy", "bad", "terrible", "don't call", "stop calling", "no further contact", "abrupt", "hangs up", "escalated"];
+                const positiveWords = ["happy", "great", "thank", "helpful", "booked", "interested", "excellent", "excited", "looking forward"];
+                
+                const lowerSummary = summary.toLowerCase();
+                const isNegative = negativeWords.some(word => lowerSummary.includes(word));
+                const isPositive = positiveWords.some(word => lowerSummary.includes(word));
+
+                // Only apply failsafe if current category is Neutral or missing
+                const { data: currCall } = await supabase.from('calls').select('sentiment_category, sentiment').eq('twilio_sid', callSid).single();
+                
+                let finalCategory = currCall?.sentiment_category || "Neutral";
+                let finalSentiment = currCall?.sentiment || summary.substring(0, 80);
+
+                if (finalCategory === "Neutral" || !finalCategory) {
+                    if (isNegative) finalCategory = "Negative";
+                    else if (isPositive) finalCategory = "Positive";
+                }
+
                 await supabase.from('calls').update({
                     status: 'completed',
                     duration_seconds: callDuration,
-                    ai_summary: uvData.summary || "No summary available.",
+                    ai_summary: summary,
+                    sentiment: finalSentiment,
+                    sentiment_category: finalCategory,
                     transcript: "Feature pending native Ultravox messages mapping."
                 }).eq('twilio_sid', callSid);
                 
-                console.log(`Successfully saved AI Summary for Call: ${callSid}`);
+                console.log(`Successfully saved AI Summary and Failsafe Sentiment for Call: ${callSid}`);
             } catch (err) {
                 console.error("Failed capturing AI Summary in background:", err);
             }
