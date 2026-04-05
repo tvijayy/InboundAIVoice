@@ -66,7 +66,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
         
         // Emphasize personality and rules
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
-        finalPrompt += "\n\nIMPORTANT INSTRUCTION: Call the 'log_call_outcome' tool when the conversation is naturally concluding to record sentiment and status.";
+        finalPrompt += "\n\nDYNAMIC SENTIMENT PROTOCOL: At the end of the call, use 'log_call_outcome'. Choose a highly descriptive single word for 'sentiment' (e.g. Relieved, Frustrated, Impatient, Ecstatic, Hesitant) and the corresponding 'category' (Positive, Negative, or Neutral).";
 
         // Force https for Ultravox tool callbacks as required by their API
         const baseUrl = `https://${req.get('host')}`;
@@ -181,10 +181,11 @@ app.post('/api/twilio/inbound', async (req, res) => {
                     {
                         temporaryTool: {
                             modelToolName: "log_call_outcome",
-                            description: "Evaluate the sentiment (Positive/Negative/Neutral) and the status (Resolved/Follow Up/Booked/Missed) right before hanging up.",
+                            description: "Record the final outcome of the call including a descriptive sentiment word and its overall category.",
                             dynamicParameters: [
                                 { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The caller's exact phone number" }, required: true },
-                                { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Positive, Negative, or Neutral" }, required: true },
+                                { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "A single descriptive word for the mood (e.g. Relieved, Frustrated, Good, Bad, Confused)" }, required: true },
+                                { name: "category", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Must be one of: Positive, Negative, or Neutral" }, required: true },
                                 { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
                             ],
                             http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/log_outcome` }
@@ -322,7 +323,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
         if (reqGoal) finalPrompt += `\n\n[PRIMARY MISSION GOAL]: ${reqGoal}`;
-        finalPrompt += "\n\nIMPORTANT INSTRUCTION: Call the 'log_call_outcome' tool when the conversation is naturally concluding to record sentiment and status.";
+        finalPrompt += "\n\nDYNAMIC SENTIMENT PROTOCOL: At the end of the call, use 'log_call_outcome'. Choose a highly descriptive single word for 'sentiment' (e.g. Relieved, Frustrated, Impatient, Ecstatic, Hesitant) and the corresponding 'category' (Positive, Negative, or Neutral).";
 
         const rawVoice = reqVoice || agentData?.voice_preset || "Mark";
         const finalVoice = (rawVoice === "Tanya" || rawVoice === "Adam" || rawVoice === "Emily") ? "Priya" : rawVoice;
@@ -679,20 +680,22 @@ app.post('/api/tools/availability', async (req, res) => {
             .gte('start_time', dayStart)
             .lte('start_time', dayEnd);
         
-        // Convert booked times to comparable format
-        let bookedHours = [];
+        // Match exact times in IST
+        let bookedTimes = [];
         if (existingApps) {
-            bookedHours = existingApps.map(a => {
-                const d = new Date(a.start_time);
-                // Convert to IST
-                const istTime = new Date(d.getTime() + (5.5 * 60 * 60 * 1000));
-                return `${istTime.getUTCHours().toString().padStart(2, '0')}:${istTime.getUTCMinutes().toString().padStart(2, '0')}`;
+            bookedTimes = existingApps.map(a => {
+                // Return exactly "HH:mm" in IST from the stored ISO string
+                return new Date(a.start_time).toLocaleTimeString('en-GB', { 
+                    timeZone: 'Asia/Kolkata', 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
             });
         }
         
         let freeSlots = allSlots.filter(slot => {
-            const slotTime = slot.split('T')[1].substring(0, 5); // "09:00"
-            return !bookedHours.includes(slotTime);
+            const slotTime = slot.split('T')[1].substring(0, 5); // Extraction "09:00"
+            return !bookedTimes.includes(slotTime);
         });
         
         console.log(`Availability for ${target_date}: ${freeSlots.length} free slots (${openTime}-${closeTime} IST)`);
@@ -781,8 +784,8 @@ app.post('/api/tools/delete', async (req, res) => {
 
 app.post('/api/tools/log_outcome', async (req, res) => {
     try {
-        const { phone, sentiment, status } = req.body;
-        console.log("Ultravox AI triggered log_call_outcome for:", phone, sentiment, status);
+        const { phone, sentiment, category, status } = req.body;
+        console.log("Ultravox AI triggered log_call_outcome for:", phone, sentiment, category, status);
         
         // Find the most recent active or completed call for this phone number
         const { data: calls } = await supabase
@@ -793,7 +796,11 @@ app.post('/api/tools/log_outcome', async (req, res) => {
             .limit(1);
 
         if (calls && calls.length > 0) {
-            await supabase.from('calls').update({ sentiment, call_status: status }).eq('id', calls[0].id);
+            await supabase.from('calls').update({ 
+                sentiment: sentiment, 
+                sentiment_category: category, 
+                call_status: status 
+            }).eq('id', calls[0].id);
         }
         
         res.json({ result: "Outcome logged successfully." });
@@ -1133,9 +1140,9 @@ app.get('/api/reports', async (req, res) => {
 
         if (calls) {
             calls.forEach(c => {
-                const s = (c.sentiment || '').toLowerCase();
-                if (s === 'positive') positive++;
-                else if (s === 'negative') negative++;
+                const cat = (c.sentiment_category || '').toLowerCase();
+                if (cat === 'positive') positive++;
+                else if (cat === 'negative') negative++;
                 else neutral++;
             });
         }
