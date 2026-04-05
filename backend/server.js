@@ -598,22 +598,31 @@ app.post('/api/twilio/status', async (req, res) => {
                 const isNegative = negativeWords.some(word => lowerSummary.includes(word));
                 const isPositive = positiveWords.some(word => lowerSummary.includes(word));
 
-                // Only apply failsafe if current category is Neutral or missing
+                // Only apply failsafe if current category is Neutral, missing, or "Neutral" string
                 const { data: currCall } = await supabase.from('calls').select('sentiment_category, sentiment').eq('twilio_sid', callSid).single();
                 
-                let finalCategory = currCall?.sentiment_category || "Neutral";
-                let finalSentiment = currCall?.sentiment || summary.substring(0, 80);
+                let finalCategory = currCall?.sentiment_category;
+                let finalSentiment = currCall?.sentiment;
 
-                if (finalCategory === "Neutral" || !finalCategory) {
-                    if (isNegative) finalCategory = "Negative";
-                    else if (isPositive) finalCategory = "Positive";
+                const isNeutral = !finalCategory || finalCategory.toLowerCase() === 'neutral';
+
+                if (isNeutral) {
+                    if (isNegative) {
+                        finalCategory = "Negative";
+                        finalSentiment = derivedSentimentSnippet.substring(0, 80);
+                    } else if (isPositive) {
+                        finalCategory = "Positive";
+                        finalSentiment = derivedSentimentSnippet.substring(0, 80);
+                    } else {
+                        finalCategory = "Neutral";
+                    }
                 }
 
                 await supabase.from('calls').update({
                     status: 'completed',
                     duration_seconds: callDuration,
                     ai_summary: summary,
-                    sentiment: finalSentiment,
+                    sentiment: finalSentiment || derivedSentimentSnippet.substring(0, 80),
                     sentiment_category: finalCategory,
                     transcript: "Feature pending native Ultravox messages mapping."
                 }).eq('twilio_sid', callSid);
