@@ -608,39 +608,32 @@ app.post('/api/twilio/status', async (req, res) => {
                 else if (isPositive) mappedReason = "Positive";
                 else if (isNegative) mappedReason = "Negative";
 
-                // Only apply failsafe if current category is Neutral, missing, or "Neutral" string
+                // FORCED FAILSAFE: Always overwrite if we detect a strong emotion in the summary
                 const { data: currCall } = await supabase.from('calls').select('sentiment_category, sentiment').eq('twilio_sid', callSid).single();
                 
-                let finalCategory = currCall?.sentiment_category;
-                let finalSentiment = currCall?.sentiment;
+                let finalCategory = currCall?.sentiment_category || "Neutral";
+                let finalSentiment = currCall?.sentiment || "Neutral";
 
-                const isNeutral = !finalCategory || finalCategory.toLowerCase() === 'neutral';
-
-                if (isNeutral) {
-                    if (isNegative) {
-                        finalCategory = "Negative";
-                        finalSentiment = mappedReason;
-                        console.log(`[Failsafe Correction] Detected NEGATIVE keywords in summary for ${callSid}. Overwriting Neutral with '${mappedReason}'.`);
-                    } else if (isPositive) {
-                        finalCategory = "Positive";
-                        finalSentiment = mappedReason;
-                        console.log(`[Failsafe Correction] Detected POSITIVE keywords in summary for ${callSid}. Overwriting Neutral with '${mappedReason}'.`);
-                    } else {
-                        finalCategory = "Neutral";
-                        finalSentiment = finalSentiment || "Neutral";
-                    }
+                // Aggressive Override: Keywords beat AI manually logging 'Neutral'
+                if (isNegative) {
+                    finalCategory = "Negative";
+                    finalSentiment = mappedReason;
+                    console.log(`[Nuclear Forced Failsafe] Detected NEGATIVE keywords for ${callSid}. Forcing 'Negative' status.`);
+                } else if (isPositive && (finalCategory === "Neutral" || !finalCategory)) {
+                    finalCategory = "Positive";
+                    finalSentiment = mappedReason;
                 }
 
                 await supabase.from('calls').update({
                     status: 'completed',
                     duration_seconds: callDuration,
                     ai_summary: summary,
-                    sentiment: finalSentiment || mappedReason,
+                    sentiment: finalSentiment,
                     sentiment_category: finalCategory,
                     transcript: "Feature pending native Ultravox messages mapping."
                 }).eq('twilio_sid', callSid);
                 
-                console.log(`Successfully saved AI Summary and Failsafe Sentiment [${finalCategory}] for Call: ${callSid}`);
+                console.log(`Successfully saved AI Summary and Forced Sentiment [${finalCategory}] for Call: ${callSid}`);
             } catch (err) {
                 console.error("Failed capturing AI Summary in background:", err);
             }
