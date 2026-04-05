@@ -662,8 +662,8 @@ export default function App() {
                            >
                              {expandedSentiment[c.id || i] 
                                ? (c.sentiment && c.sentiment.toLowerCase() !== 'neutral' 
-                                   ? c.sentiment 
-                                   : (c.ai_summary ? c.ai_summary.split(' ').slice(0, 3).join(' ') + '...' : 'No detail')) 
+                                   ? c.sentiment.split(' ').slice(0, 2).join(' ') 
+                                   : (c.sentiment_category || 'Neutral')) 
                                : (c.sentiment_category || 'Neutral')}
                            </button>
                         </td>
