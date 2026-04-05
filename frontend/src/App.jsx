@@ -661,7 +661,9 @@ export default function App() {
                             title="Click to see real reason"
                            >
                              {expandedSentiment[c.id || i] 
-                               ? (c.sentiment || (c.ai_summary ? c.ai_summary.substring(0, 40) + '...' : 'No detail')) 
+                               ? (c.sentiment && c.sentiment.toLowerCase() !== 'neutral' 
+                                   ? c.sentiment 
+                                   : (c.ai_summary ? c.ai_summary.substring(0, 45) + '...' : 'No detail')) 
                                : (c.sentiment_category || 'Neutral')}
                            </button>
                         </td>
