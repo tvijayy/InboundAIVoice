@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Calendar, Bot, Mic, Key, Phone, Users, PhoneOutgoing, Globe, Sparkles, Trash2, RefreshCw, CheckCircle, XCircle, Target, BookOpen, Megaphone, Bell, Sun, Moon } from 'lucide-react';
+import { BarChart3, Calendar, Bot, Mic, Key, Phone, Users, PhoneOutgoing, Globe, Sparkles, Trash2, RefreshCw, CheckCircle, XCircle, Target, BookOpen, Megaphone, Bell, Sun, Moon, Wrench } from 'lucide-react';
 import { cn } from './lib/utils';
 import * as XLSX from 'xlsx';
 
@@ -669,17 +669,27 @@ export default function App() {
                               }));
                             }}
                             className={cn(
-                              "px-3 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider transition-all hover:scale-105 active:scale-95 cursor-pointer border shadow-sm",
-                              (c.sentiment_category === 'Positive') ? "bg-green-500/10 text-green-400 border-green-500/20" : 
+                              "px-4 py-1.5 rounded-full text-[10px] items-center gap-1.5 flex transition-all hover:scale-105 active:scale-95 cursor-pointer border shadow-sm font-bold tracking-wide",
+                              (c.sentiment_category === 'Positive') ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : 
                               (c.sentiment_category === 'Negative') ? "bg-red-500/10 text-red-400 border-red-500/20" : 
-                              "bg-muted text-muted-foreground border-border"
+                              "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
                             )}
-                            title="Click to see real reason"
+                            title="Click to reveal interaction nuance"
                            >
                               {expandedSentiment[c.id || i] 
-                               ? (c.sentiment && c.sentiment.toLowerCase() !== 'neutral' 
-                                   ? c.sentiment.split(' ').slice(0, 2).join(' ') 
-                                   : 'N/A') 
+                               ? (() => {
+                                   const raw = (c.sentiment || '').trim();
+                                   const cat = (c.sentiment_category || 'Neutral');
+                                   if (raw && raw.toLowerCase() !== 'neutral' && raw.toLowerCase() !== cat.toLowerCase()) {
+                                     // Return 2 to 4 words
+                                     const words = raw.split(/\s+/).filter(Boolean);
+                                     return words.length >= 2 ? words.slice(0, 4).join(' ') : raw;
+                                   }
+                                   // Descriptive Fallbacks
+                                   if (cat === 'Positive') return 'Positive Connection';
+                                   if (cat === 'Negative') return 'Customer Concern';
+                                   return 'Standard Inquiry';
+                                 })()
                                : (c.sentiment_category || 'Neutral')}
                            </button>
                         </td>
