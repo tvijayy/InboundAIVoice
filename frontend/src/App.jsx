@@ -209,7 +209,7 @@ export default function App() {
 
         {/* ── DASHBOARD ── */}
         {activePage === 'dashboard' && (
-          <div className="space-y-8 fade-in max-w-[1200px]">
+          <div className="space-y-8 fade-in w-full">
             <div className="flex justify-between items-end">
               <div>
                 <h2 className="text-3xl font-extrabold tracking-tight">Dashboard</h2>
@@ -271,7 +271,7 @@ export default function App() {
 
         {/* ── REPORTS ── */}
         {activePage === 'reports' && (
-          <div className="space-y-8 fade-in max-w-[1200px]">
+          <div className="space-y-8 fade-in w-full">
              <div>
                <h2 className="text-3xl font-extrabold tracking-tight">Analytics & Reports</h2>
                <p className="text-sm text-muted-foreground mt-1.5 font-medium">Live business metrics and conversions.</p>
@@ -500,7 +500,7 @@ export default function App() {
 
         {/* ── INBOUND AGENT ── */}
         {activePage === 'agent' && (
-          <div className="space-y-8 fade-in max-w-4xl mx-auto">
+          <div className="space-y-8 fade-in w-full">
             <div><h2 className="text-3xl font-extrabold tracking-tight">Inbound Agent</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">Configure your main AI voice agent that handles inbound calls</p></div>
             <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg">
               <form onSubmit={async (e) => {
@@ -574,7 +574,7 @@ export default function App() {
 
         {/* ── API CREDENTIALS ── */}
         {activePage === 'credentials' && (
-          <div className="space-y-6 fade-in max-w-3xl mx-auto">
+          <div className="space-y-6 fade-in w-full">
             <div><h2 className="text-3xl font-extrabold tracking-tight">API Credentials</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">Store your service keys securely in Supabase</p></div>
             <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg">
               <form onSubmit={async (e) => {
@@ -711,7 +711,7 @@ export default function App() {
 
         {/* ── LEAD CRM ── */}
         {activePage === 'leads' && (
-          <div className="space-y-6 fade-in max-w-6xl mx-auto">
+          <div className="space-y-6 fade-in w-full">
             <div className="flex justify-between">
               <div><h2 className="text-3xl font-extrabold tracking-tight">Lead Management</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">AI-enriched CRM specifically built for real estate tracking</p></div>
             </div>
@@ -750,7 +750,7 @@ export default function App() {
 
         {/* ── KNOWLEDGE BASE ── */}
         {activePage === 'knowledge_base' && (
-          <div className="space-y-8 fade-in max-w-4xl mx-auto">
+          <div className="space-y-8 fade-in w-full">
             <div><h2 className="text-3xl font-extrabold tracking-tight">Knowledge Base & RAG</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">Upload context for your AI Agent so it learns facts, pricing, and FAQs</p></div>
             <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg">
               <form onSubmit={async (e) => {
@@ -799,7 +799,7 @@ export default function App() {
 
         {/* ── OUTBOUND CAMPAIGNS ── */}
         {activePage === 'campaigns' && (
-          <div className="space-y-8 fade-in max-w-4xl mx-auto">
+          <div className="space-y-8 fade-in w-full">
             <div><h2 className="text-3xl font-extrabold tracking-tight">Outbound Voice Campaigns</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">Upload a CSV list to automatically dial contacts sequentially</p></div>
             <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg space-y-4">
               <label className="block text-xs font-bold text-muted-foreground uppercase mb-2">Campaign Setup</label>
@@ -1128,10 +1128,10 @@ export default function App() {
           </div>
         </div>
       )}
+       <div className="p-8 mt-auto text-center text-xs text-muted-foreground border-t border-border/30">
+         © 2026 Azlon AI Platform • Dashboard Version V2.2
+       </div>
       </main>
-      <div className="p-4 text-center text-xs text-muted-foreground border-t border-border">
-        © 2026 Azlon AI Platform • Dashboard Version V2.2
-      </div>
     </div>
   );
 }
