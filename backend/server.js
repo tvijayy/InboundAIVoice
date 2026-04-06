@@ -1279,14 +1279,38 @@ app.get('/api/reports', async (req, res) => {
         const totalCalls = calls ? calls.length : 0;
         const totalDuration = calls ? calls.reduce((acc, c) => acc + parseInt(c.duration_seconds || 0), 0) : 0;
         
-        let positive = 0; let negative = 0; let neutral = 0;
+        // Advanced aggregations for charting
+        const statusCounts = { "Booked": 0, "Resolved": 0, "Follow Up": 0, "Missed": 0, "Standard Inquiry": 0 };
+        const hourlyVolume = new Array(24).fill(0).map((_, i) => ({ hour: `${i}:00`, count: 0 }));
+        const recentDurations = [];
 
         if (calls) {
             calls.forEach(c => {
+                // 1. Sentiment stats
                 const cat = (c.sentiment_category || '').toLowerCase();
                 if (cat === 'positive') positive++;
                 else if (cat === 'negative') negative++;
                 else neutral++;
+
+                // 2. Status/Outcome Stats
+                const s = c.status || (cat === 'positive' ? 'Booked' : 'Standard Inquiry');
+                if (statusCounts.hasOwnProperty(s)) statusCounts[s]++;
+                else if (s.toLowerCase().includes('book')) statusCounts["Booked"]++;
+                else if (s.toLowerCase().includes('standard')) statusCounts["Standard Inquiry"]++;
+
+                // 3. Hourly Trend
+                if (c.created_at) {
+                    const hour = new Date(c.created_at).getHours();
+                    hourlyVolume[hour].count++;
+                }
+
+                // 4. Duration Trend (Last 10)
+                if (c.duration_seconds) {
+                    recentDurations.push({
+                        time: new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        duration: Math.round(c.duration_seconds)
+                    });
+                }
             });
         }
 
@@ -1299,7 +1323,11 @@ app.get('/api/reports', async (req, res) => {
                 totalMinutes: Math.floor(totalDuration / 60) || 0,
                 sentiment: { positive, negative, neutral },
                 totalLeads: leads ? leads.length : 0,
-                bookedAppointments: apps ? apps.length : 0
+                bookedAppointments: apps ? apps.length : 0,
+                // NEW: Chart Data
+                outcomes: Object.entries(statusCounts).map(([name, value]) => ({ name, value })),
+                hourlyVolume: hourlyVolume,
+                recentDurations: recentDurations.slice(-10)
             }
         });
     } catch (err) {
