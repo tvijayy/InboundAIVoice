@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Calendar, Bot, Mic, Key, Phone, Users, PhoneOutgoing, Globe, Sparkles, Trash2, RefreshCw, CheckCircle, XCircle, Target, BookOpen, Megaphone, Bell, Sun, Moon, Wrench } from 'lucide-react';
+import { BarChart3, Calendar, Bot, Mic, Key, Phone, Users, PhoneOutgoing, Globe, Sparkles, Trash2, RefreshCw, CheckCircle, XCircle, Target, BookOpen, Megaphone, Bell, Sun, Moon, Wrench, TrendingUp, Clock, Activity } from 'lucide-react';
 import { cn } from './lib/utils';
 import * as XLSX from 'xlsx';
+import { 
+  PieChart, Pie, Cell, 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  AreaChart, Area 
+} from 'recharts';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://saas-backend.xqnsvk.easypanel.host';
 
@@ -233,22 +238,92 @@ export default function App() {
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-3 gap-5">
+              {/* Win Chart: Call Outcomes */}
+              <div className="bg-card border border-border rounded-2xl p-6 shadow-premium flex flex-col h-[350px]">
+                <h3 className="font-bold text-sm mb-2 flex items-center gap-2"><Target size={14} className="text-primary" /> Call Outcomes</h3>
+                <p className="text-2xs text-muted-foreground mb-4 uppercase tracking-wider font-bold">Conversion Breakdown</p>
+                <div className="flex-1 w-full min-h-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={reports?.outcomes || []}
+                        innerRadius={60}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {(reports?.outcomes || []).map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={[ '#10b981', '#06b6d4', '#f59e0b', '#ef4444', '#6366f1', '#a855f7' ][index % 6]} stroke="none" />
+                        ))}
+                      </Pie>
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
+                        itemStyle={{ fontSize: '12px', color: '#f8fafc' }}
+                      />
+                      <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Peak Operations: Hourly Volume */}
+              <div className="col-span-2 bg-card border border-border rounded-2xl p-6 shadow-premium flex flex-col h-[350px]">
+                <h3 className="font-bold text-sm mb-2 flex items-center gap-2"><Clock size={14} className="text-primary" /> Peak Operations</h3>
+                <p className="text-2xs text-muted-foreground mb-4 uppercase tracking-wider font-bold">Hourly Call Volume</p>
+                <div className="flex-1 w-full min-h-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={reports?.hourlyVolume || []}>
+                      <defs>
+                        <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                      <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} interval={2} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
+                      <Tooltip contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }} />
+                      <Area type="monotone" dataKey="count" stroke="#8b5cf6" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Duration Trend: Last 10 Calls */}
+              <div className="col-span-3 bg-card border border-border rounded-2xl p-6 shadow-premium flex flex-col h-[300px]">
+                <h3 className="font-bold text-sm mb-2 flex items-center gap-2"><Activity size={14} className="text-primary" /> Call Engagement</h3>
+                <p className="text-2xs text-muted-foreground mb-4 uppercase tracking-wider font-bold">Duration of Recent Sessions (Seconds)</p>
+                <div className="flex-1 w-full min-h-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={reports?.recentDurations || []}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                      <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
+                      <Tooltip cursor={{ fill: '#ffffff05' }} contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }} />
+                      <Bar dataKey="duration" fill="#6366f1" radius={[6, 6, 0, 0]} barSize={40} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Keep existing mini-tables below */}
               <div className="bg-card border border-border rounded-2xl p-6 shadow-premium">
                 <h3 className="font-bold text-sm mb-5 pb-3 border-b border-border flex items-center gap-2"><Phone size={14} strokeWidth={2.5} className="text-primary" /> Recent Calls</h3>
-                <table className="w-full text-left text-sm table-premium">
-                  <thead><tr className="border-b border-border"><th className="pb-3 text-muted-foreground font-semibold text-2xs uppercase tracking-ultra">Number</th><th className="pb-3 text-muted-foreground font-semibold text-2xs uppercase tracking-ultra">Status</th><th className="pb-3 text-muted-foreground font-semibold text-2xs uppercase tracking-ultra">Date</th></tr></thead>
-                  <tbody>
-                    {callLogs.slice(0, 5).map((c, i) => (
-                      <tr key={i} className="border-b border-border/30">
-                        <td className="py-3 font-mono text-primary text-xs font-semibold">{c.direction === 'inbound' ? c.from_phone : c.to_phone}</td>
-                        <td className="py-3"><span className="bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-lg text-2xs uppercase font-bold tracking-wide">{c.status}</span></td>
-                        <td className="py-3 text-muted-foreground text-xs font-medium">{new Date(c.created_at).toLocaleDateString()}</td>
-                      </tr>
-                    ))}
-                    {callLogs.length === 0 && <tr><td colSpan="3" className="text-center py-8 text-muted-foreground text-xs font-medium">No calls yet</td></tr>}
-                  </tbody>
-                </table>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead><tr className="border-b border-border"><th className="pb-3 text-muted-foreground font-semibold text-2xs uppercase tracking-ultra whitespace-nowrap">Number</th><th className="pb-3 text-muted-foreground font-semibold text-2xs uppercase tracking-ultra">Status</th><th className="pb-3 text-muted-foreground font-semibold text-2xs uppercase tracking-ultra">Date</th></tr></thead>
+                    <tbody>
+                      {callLogs.slice(0, 5).map((c, i) => (
+                        <tr key={i} className="border-b border-border/30">
+                          <td className="py-3 font-mono text-primary text-xs font-semibold">{c.direction === 'inbound' ? c.from_phone : c.to_phone}</td>
+                          <td className="py-3"><span className="bg-emerald-500/10 text-emerald-400 px-2.5 py-1 rounded-lg text-2xs uppercase font-bold tracking-wide">{c.status}</span></td>
+                          <td className="py-3 text-muted-foreground text-xs font-medium">{new Date(c.created_at).toLocaleDateString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
               <div className="bg-card border border-border rounded-2xl p-6 shadow-premium">
                 <h3 className="font-bold text-sm mb-5 pb-3 border-b border-border flex items-center gap-2"><Calendar size={14} strokeWidth={2.5} className="text-primary" /> Upcoming Appointments</h3>
@@ -259,7 +334,7 @@ export default function App() {
                         <div className="text-sm font-semibold tracking-tight">{a.name}</div>
                         <div className="text-xs text-muted-foreground font-mono mt-0.5">{a.phone}</div>
                       </div>
-                      <div className="text-xs text-primary text-right font-semibold">{new Date(a.start_time).toLocaleString()}</div>
+                      <div className="text-xs text-primary text-right font-semibold">{new Date(a.start_time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
                     </div>
                   ))}
                   {appointments.length === 0 && <div className="text-center py-8 text-muted-foreground text-xs font-medium">No appointments yet</div>}
@@ -616,21 +691,14 @@ export default function App() {
           <div className="space-y-6 fade-in w-full">
             <div className="flex justify-between items-start">
               <h2 className="text-3xl font-extrabold tracking-tight">Call Logs & Telemetry</h2>
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={handleFixSentiment} 
-                  disabled={isFixing}
-                  className="flex items-center gap-2 text-xs border border-red-500/20 text-red-400 bg-red-500/5 px-3 py-1.5 rounded-lg hover:bg-red-500/10 transition"
-                >
-                  <Wrench size={11}/> {isFixing ? "Fixing..." : "Fix Sentiment"}
-                </button>
-                <button 
-                  onClick={() => fetch(`${API_BASE}/api/calls`).then(r=>r.json()).then(d=>{if(d.success)setCallLogs(d.calls)})} 
-                  className="flex items-center gap-2 text-xs border border-border px-3 py-1.5 rounded-lg hover:text-primary transition"
-                >
-                  <RefreshCw size={11}/> Refresh
-                </button>
-              </div>
+               <div className="flex items-center gap-2">
+                 <button 
+                   onClick={() => fetch(`${API_BASE}/api/calls`).then(r=>r.json()).then(d=>{if(d.success)setCallLogs(d.calls)})} 
+                   className="flex items-center gap-2 text-xs border border-border px-3 py-1.5 rounded-lg hover:text-primary transition"
+                 >
+                   <RefreshCw size={11}/> Refresh
+                 </button>
+               </div>
             </div>
             <div className="bg-card border border-border rounded-2xl shadow-premium-lg overflow-hidden">
               <div className="overflow-x-auto">
