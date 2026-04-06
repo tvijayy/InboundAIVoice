@@ -613,7 +613,7 @@ export default function App() {
 
         {/* ── CALL LOGS (Redesigned) ── */}
         {activePage === 'logs' && (
-          <div className="space-y-6 fade-in max-w-[1400px] mx-auto w-full">
+          <div className="space-y-6 fade-in w-full">
             <div className="flex justify-between items-start">
               <h2 className="text-3xl font-extrabold tracking-tight">Call Logs & Telemetry</h2>
               <div className="flex items-center gap-2">
@@ -658,41 +658,26 @@ export default function App() {
                         <td className="py-4 px-5 text-center">
                           <button onClick={() => setViewSummaryModal(c)} className="bg-white/5 hover:bg-white/10 text-xs px-3 py-1.5 rounded-full border border-border transition-colors">View Data</button>
                         </td>
-                        <td className="py-4 px-5 text-center">
-                           <button 
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const callId = c.id || i;
-                              setExpandedSentiment(prev => ({
-                                ...prev,
-                                [callId]: !prev[callId]
-                              }));
-                            }}
-                            className={cn(
-                              "px-4 py-1.5 rounded-full text-[10px] items-center gap-1.5 flex transition-all hover:scale-105 active:scale-95 cursor-pointer border shadow-sm font-bold tracking-wide",
-                              (c.sentiment_category === 'Positive') ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : 
-                              (c.sentiment_category === 'Negative') ? "bg-red-500/10 text-red-400 border-red-500/20" : 
-                              "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
-                            )}
-                            title="Click to reveal interaction nuance"
-                           >
-                              {expandedSentiment[c.id || i] 
-                               ? (() => {
-                                   const raw = (c.sentiment || '').trim();
-                                   const cat = (c.sentiment_category || 'Neutral');
-                                   if (raw && raw.toLowerCase() !== 'neutral' && raw.toLowerCase() !== cat.toLowerCase()) {
-                                     // Return 2 to 4 words
-                                     const words = raw.split(/\s+/).filter(Boolean);
-                                     return words.length >= 2 ? words.slice(0, 4).join(' ') : raw;
-                                   }
-                                   // Descriptive Fallbacks
-                                   if (cat === 'Positive') return 'Positive Connection';
-                                   if (cat === 'Negative') return 'Customer Concern';
-                                   return 'Standard Inquiry';
-                                 })()
-                               : (c.sentiment_category || 'Neutral')}
-                           </button>
-                        </td>
+                         <td className="py-4 px-5 text-center">
+                           <div className={cn(
+                             "px-4 py-1.5 rounded-full text-[10px] items-center justify-center flex transition-all border shadow-sm font-bold tracking-wide mx-auto w-max",
+                             (c.sentiment_category === 'Positive') ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : 
+                             (c.sentiment_category === 'Negative') ? "bg-red-500/10 text-red-400 border-red-500/20" : 
+                             "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
+                           )}>
+                             {(() => {
+                               const raw = (c.sentiment || '').trim();
+                               const cat = (c.sentiment_category || 'Neutral');
+                               if (raw && raw.toLowerCase() !== 'neutral' && raw.toLowerCase() !== cat.toLowerCase()) {
+                                 const words = raw.split(/\s+/).filter(Boolean);
+                                 return words.length >= 2 ? words.slice(0, 4).join(' ') : raw;
+                               }
+                               if (cat === 'Positive') return 'Booked';
+                               if (cat === 'Negative') return 'Customer Concern';
+                               return 'Standard Inquiry';
+                             })()}
+                           </div>
+                         </td>
                         <td className="py-4 px-5">
                           <span className={cn("px-2.5 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider",
                             c.call_status === 'Booked' ? "bg-blue-500/10 text-blue-400" :
