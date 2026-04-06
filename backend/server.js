@@ -1276,8 +1276,8 @@ app.get('/api/reports', async (req, res) => {
         const { data: leads } = await supabase.from('leads').select('id');
         const { data: apps } = await supabase.from('appointments').select('*');
 
-        const totalCalls = calls ? calls.length : 0;
         const totalDuration = calls ? calls.reduce((acc, c) => acc + parseInt(c.duration_seconds || 0), 0) : 0;
+        let positive = 0; let negative = 0; let neutral = 0;
         
         // Advanced aggregations for charting
         const statusCounts = { "Booked": 0, "Resolved": 0, "Follow Up": 0, "Missed": 0, "Standard Inquiry": 0 };
@@ -1293,19 +1293,23 @@ app.get('/api/reports', async (req, res) => {
                 else neutral++;
 
                 // 2. Status/Outcome Stats
-                const s = c.status || (cat === 'positive' ? 'Booked' : 'Standard Inquiry');
+                const rawStatus = c.status || '';
+                const s = rawStatus || (cat === 'positive' ? 'Booked' : 'Standard Inquiry');
                 if (statusCounts.hasOwnProperty(s)) statusCounts[s]++;
                 else if (s.toLowerCase().includes('book')) statusCounts["Booked"]++;
                 else if (s.toLowerCase().includes('standard')) statusCounts["Standard Inquiry"]++;
 
                 // 3. Hourly Trend
                 if (c.created_at) {
-                    const hour = new Date(c.created_at).getHours();
-                    hourlyVolume[hour].count++;
+                    const d = new Date(c.created_at);
+                    const hour = d.getHours();
+                    if (!isNaN(hour) && hour >= 0 && hour < 24) {
+                        hourlyVolume[hour].count++;
+                    }
                 }
 
                 // 4. Duration Trend (Last 10)
-                if (c.duration_seconds) {
+                if (c.duration_seconds && c.created_at) {
                     recentDurations.push({
                         time: new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                         duration: Math.round(c.duration_seconds)
