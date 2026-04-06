@@ -1295,10 +1295,20 @@ app.get('/api/reports', async (req, res) => {
 
                 // 2. Status/Outcome Stats
                 const rawStatus = c.status || '';
-                const s = rawStatus || (cat === 'positive' ? 'Booked' : 'Standard Inquiry');
+                let s = rawStatus;
+                if (!c.duration_seconds || Number(c.duration_seconds) === 0) {
+                    s = "No Connection";
+                } else if (!s) {
+                    s = (cat === 'positive' ? 'Booked' : 'Standard Inquiry');
+                }
+                
                 if (statusCounts.hasOwnProperty(s)) statusCounts[s]++;
                 else if (s.toLowerCase().includes('book')) statusCounts["Booked"]++;
                 else if (s.toLowerCase().includes('standard')) statusCounts["Standard Inquiry"]++;
+                else if (s === "No Connection") {
+                    if (!statusCounts["No Connection"]) statusCounts["No Connection"] = 0;
+                    statusCounts["No Connection"]++;
+                }
 
                 // 3. Hourly Trend
                 if (c.created_at) {
