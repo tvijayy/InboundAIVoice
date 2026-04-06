@@ -185,7 +185,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                             description: "Record the final outcome of the call including a descriptive sentiment word and its overall category.",
                             dynamicParameters: [
                                 { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The caller's exact phone number" }, required: true },
-                                { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "A single descriptive word for the mood (e.g. Relieved, Frustrated, Good, Bad, Confused)" }, required: true },
+                                { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "A short 2-4 word phrase describing the mood (e.g. Very Relieved, Extremely Frustrated, Calm and Professional)" }, required: true },
                                 { name: "category", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Must be one of: Positive, Negative, or Neutral" }, required: true },
                                 { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
                             ],
