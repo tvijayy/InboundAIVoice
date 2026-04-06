@@ -742,8 +742,8 @@ export default function App() {
                                   const words = raw.split(/\s+/).filter(Boolean);
                                   return words.length >= 2 ? words.slice(0, 4).join(' ') : raw;
                                 }
-                                if (cat === 'Positive') return 'Booked';
-                                if (cat === 'Negative') return 'Customer Concern';
+                                if (cat === 'Positive' && !raw) return 'Interested';
+                                if (cat === 'Negative' && !raw) return 'Customer Concern';
                                 return 'Standard Inquiry';
                               })()}
                             </div>
