@@ -587,41 +587,55 @@ app.post('/api/twilio/status', async (req, res) => {
 
                 // Save to Supabase
                 const summary = uvData.summary || "No summary available.";
-                let derivedCategory = "Neutral";
-                let derivedSentimentSnippet = summary.split('.')[0]; // Take first sentence as detail if missing
 
-                // Failsafe: Keyword scan for sentiment if not already set
-                const negativeWords = ["frustrat", "angr", "angry", "disappoint", "complaint", "unhappy", "bad", "terrible", "don't call", "stop calling", "no further contact", "abrupt", "hangs up", "escalated"];
-                const positiveWords = ["happy", "great", "thank", "helpful", "booked", "interested", "excellent", "excited", "looking forward"];
-                
+                // ── Keyword-based failsafe sentiment scanner ──────────────────
+                const negativeWords = ["frustrat", "angr", "angry", "disappoint", "complaint", "unhappy", "bad", "terrible", "don't call", "stop calling", "no further contact", "abrupt", "hangs up", "escalated", "rude", "useless", "waste"];
+                const positiveWords = ["happy", "great", "thank", "helpful", "booked", "interested", "excellent", "excited", "looking forward", "confirmed", "resolved", "satisfied", "pleased", "appreciate", "good experience"];
+
                 const lowerSummary = summary.toLowerCase();
                 const isNegative = negativeWords.some(word => lowerSummary.includes(word));
                 const isPositive = positiveWords.some(word => lowerSummary.includes(word));
 
-                // Mapping: Pick a single best word for the Reason if failsafe is used
-                let mappedReason = "Neutral";
+                // Map a short 1-2 word reason from keywords
+                let mappedReason = null;
                 if (lowerSummary.includes("frustrat")) mappedReason = "Frustrated";
                 else if (lowerSummary.includes("angr")) mappedReason = "Angry";
                 else if (lowerSummary.includes("disappoint")) mappedReason = "Disappointed";
-                else if (lowerSummary.includes("booked")) mappedReason = "Booked";
+                else if (lowerSummary.includes("escalat")) mappedReason = "Escalated";
+                else if (lowerSummary.includes("booked") || lowerSummary.includes("confirmed")) mappedReason = "Booked";
                 else if (lowerSummary.includes("interest")) mappedReason = "Interested";
+                else if (lowerSummary.includes("thank")) mappedReason = "Thankful";
+                else if (lowerSummary.includes("satisf") || lowerSummary.includes("pleased")) mappedReason = "Satisfied";
+                else if (lowerSummary.includes("resolv")) mappedReason = "Resolved";
                 else if (isPositive) mappedReason = "Positive";
                 else if (isNegative) mappedReason = "Negative";
 
-                // FORCED FAILSAFE: Always overwrite if we detect a strong emotion in the summary
+                // ── Check if AI already logged a real sentiment via log_call_outcome ──
                 const { data: currCall } = await supabase.from('calls').select('sentiment_category, sentiment').eq('twilio_sid', callSid).single();
-                
-                let finalCategory = currCall?.sentiment_category || "Neutral";
-                let finalSentiment = currCall?.sentiment || "Neutral";
 
-                // Aggressive Override: Keywords beat AI manually logging 'Neutral'
-                if (isNegative) {
-                    finalCategory = "Negative";
-                    finalSentiment = mappedReason;
-                    console.log(`[Nuclear Forced Failsafe] Detected NEGATIVE keywords for ${callSid}. Forcing 'Negative' status.`);
-                } else if (isPositive && (finalCategory === "Neutral" || !finalCategory)) {
-                    finalCategory = "Positive";
-                    finalSentiment = mappedReason;
+                const aiAlreadyLogged = currCall?.sentiment_category && currCall.sentiment_category !== 'Neutral' && currCall.sentiment_category !== null;
+
+                let finalCategory = currCall?.sentiment_category || 'Neutral';
+                let finalSentiment = currCall?.sentiment || 'Neutral';
+
+                if (aiAlreadyLogged) {
+                    // ✅ AI logged a real sentiment in real-time — trust it, don't override
+                    console.log(`[SENTIMENT] AI already logged: ${finalCategory} (${finalSentiment}) for ${callSid} — keeping AI result.`);
+                } else {
+                    // Fallback: use keyword scan on the summary
+                    if (isNegative) {
+                        finalCategory = 'Negative';
+                        finalSentiment = mappedReason || 'Negative';
+                        console.log(`[SENTIMENT] Keyword fallback → NEGATIVE for ${callSid}.`);
+                    } else if (isPositive) {
+                        finalCategory = 'Positive';
+                        finalSentiment = mappedReason || 'Positive';
+                        console.log(`[SENTIMENT] Keyword fallback → POSITIVE for ${callSid}.`);
+                    } else {
+                        finalCategory = 'Neutral';
+                        finalSentiment = 'Neutral';
+                        console.log(`[SENTIMENT] No strong signal found — staying Neutral for ${callSid}.`);
+                    }
                 }
 
                 await supabase.from('calls').update({
@@ -632,8 +646,8 @@ app.post('/api/twilio/status', async (req, res) => {
                     sentiment_category: finalCategory,
                     transcript: "Feature pending native Ultravox messages mapping."
                 }).eq('twilio_sid', callSid);
-                
-                console.log(`Successfully saved AI Summary and Forced Sentiment [${finalCategory}] for Call: ${callSid}`);
+
+                console.log(`[SENTIMENT_SYSTEM_v3.0] Final for ${callSid}: ${finalCategory} (${finalSentiment})`);
             } catch (err) {
                 console.error("Failed capturing AI Summary in background:", err);
             }
@@ -838,10 +852,27 @@ app.post('/api/tools/delete', async (req, res) => {
 
 app.post('/api/tools/log_outcome', async (req, res) => {
     try {
-        const cleanPhone = phone.replace(/\D/g, '');
-        console.log("Ultravox AI triggered log_call_outcome for:", phone, "Cleaned:", cleanPhone);
-        
-        // Find the most recent active or completed call for this phone number
+        // ✅ FIX: Properly destructure all fields from request body
+        const { phone, sentiment, category, status } = req.body;
+
+        if (!phone) {
+            console.error("[log_outcome] Missing phone number in request body.");
+            return res.json({ result: "Missing phone. Could not log outcome." });
+        }
+
+        const cleanPhone = String(phone).replace(/\D/g, '');
+        console.log(`[log_outcome] AI logged for phone=${phone} | sentiment='${sentiment}' | category='${category}' | status='${status}'`);
+
+        if (!sentiment || !category) {
+            console.warn("[log_outcome] Missing sentiment or category — skipping DB update.");
+            return res.json({ result: "Missing sentiment/category. Outcome not saved." });
+        }
+
+        // Validate category to only allow known values
+        const validCategories = ['Positive', 'Negative', 'Neutral'];
+        const safeCategory = validCategories.includes(category) ? category : 'Neutral';
+
+        // Find the most recent call for this phone number
         const { data: calls } = await supabase
             .from('calls')
             .select('id, to_phone, from_phone')
@@ -850,17 +881,75 @@ app.post('/api/tools/log_outcome', async (req, res) => {
             .limit(1);
 
         if (calls && calls.length > 0) {
-            await supabase.from('calls').update({ 
-                sentiment: sentiment, 
-                sentiment_category: category, 
-                call_status: status 
-            }).eq('id', calls[0].id);
+            const updatePayload = {
+                sentiment: sentiment,
+                sentiment_category: safeCategory,
+            };
+            if (status) updatePayload.call_status = status;
+
+            await supabase.from('calls').update(updatePayload).eq('id', calls[0].id);
+            console.log(`[log_outcome] ✅ Saved: callId=${calls[0].id} → ${safeCategory} (${sentiment})`);
+        } else {
+            console.warn(`[log_outcome] No call found for phone: ${cleanPhone}`);
         }
-        
+
         res.json({ result: "Outcome logged successfully." });
     } catch(err) {
         console.error("Error logging outcome:", err);
         res.status(500).json({ result: "Failed to log outcome" });
+    }
+});
+
+app.post('/api/fix-sentiment', async (req, res) => {
+    try {
+        console.log("[SENTIMENT_FIX_v3.0] Running bidirectional mass correction on Neutral calls...");
+        const { data: calls } = await supabase.from('calls').select('*').eq('sentiment_category', 'Neutral');
+
+        const negativeWords = ["frustrat", "angr", "angry", "disappoint", "complaint", "unhappy", "bad", "terrible", "rude", "escalat", "hang up", "useless", "waste"];
+        const positiveWords = ["happy", "great", "thank", "helpful", "booked", "interested", "excellent", "excited", "confirmed", "resolved", "satisfied", "pleased", "appreciate"];
+
+        let fixedCount = 0;
+
+        for (const call of (calls || [])) {
+            const summary = (call.ai_summary || "").toLowerCase();
+
+            const isNegative = negativeWords.some(word => summary.includes(word));
+            const isPositive = positiveWords.some(word => summary.includes(word));
+
+            let newCategory = null;
+            let newReason = null;
+
+            if (isNegative) {
+                newCategory = 'Negative';
+                if (summary.includes("frustrat")) newReason = "Frustrated";
+                else if (summary.includes("angr")) newReason = "Angry";
+                else if (summary.includes("disappoint")) newReason = "Disappointed";
+                else if (summary.includes("escalat")) newReason = "Escalated";
+                else newReason = "Negative";
+            } else if (isPositive) {
+                newCategory = 'Positive';
+                if (summary.includes("booked") || summary.includes("confirmed")) newReason = "Booked";
+                else if (summary.includes("interest")) newReason = "Interested";
+                else if (summary.includes("thank")) newReason = "Thankful";
+                else if (summary.includes("satisf") || summary.includes("pleased")) newReason = "Satisfied";
+                else if (summary.includes("resolv")) newReason = "Resolved";
+                else newReason = "Positive";
+            }
+
+            if (newCategory) {
+                await supabase.from('calls').update({
+                    sentiment_category: newCategory,
+                    sentiment: newReason
+                }).eq('id', call.id);
+                fixedCount++;
+            }
+        }
+
+        console.log(`[SENTIMENT_FIX_v3.0] Fixed ${fixedCount} calls.`);
+        res.json({ success: true, fixed: fixedCount });
+    } catch(err) {
+        console.error("Mass Correction Failed:", err);
+        res.status(500).json({ error: "Correction failed" });
     }
 });
 
