@@ -47,22 +47,24 @@ export default function App() {
 
   useEffect(() => { fetchAll(); }, []);
 
-  // Auto-refresh appointments every 30 seconds for real-time sync
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetch(`${API_BASE}/api/appointments`).then(r => r.json()).then(d => { if (d.success) setAppointments(d.appointments || []); }).catch(() => {});
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Auto-refresh campaign stats every 10 seconds when viewing campaigns
-  useEffect(() => {
-    if (activePage !== 'campaigns') return;
-    const interval = setInterval(() => {
-      fetch(`${API_BASE}/api/campaigns`).then(r => r.json()).then(d => { if (d?.success) setCampaigns(d.campaigns); }).catch(() => {});
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [activePage]);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isFixing, setIsFixing] = useState(false); 
+  
+  const handleFixSentiment = async () => {
+    setIsFixing(true);
+    try {
+      const resp = await fetch(`${API_BASE}/api/fix-sentiment`, { method: 'POST' });
+      const data = await resp.json();
+      if (data.success) {
+        showToast(`Repaired ${data.fixed} calls!`);
+        fetchAll();
+      }
+    } catch (err) {
+      showToast("Repair failed.", "error");
+    } finally {
+      setIsFixing(false);
+    }
+  };
 
   const getIntegration = (provider) => integrations.find(i => i.provider === provider) || { api_key: '', meta_data: {} };
 
@@ -614,7 +616,21 @@ export default function App() {
           <div className="space-y-6 fade-in max-w-[1400px] mx-auto w-full">
             <div className="flex justify-between items-start">
               <h2 className="text-3xl font-extrabold tracking-tight">Call Logs & Telemetry</h2>
-              <button onClick={() => fetch(`${API_BASE}/api/calls`).then(r=>r.json()).then(d=>{if(d.success)setCallLogs(d.calls)})} className="flex items-center gap-2 text-xs border border-border px-3 py-1.5 rounded-lg hover:text-primary transition"><RefreshCw size={11}/> Refresh</button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={handleFixSentiment} 
+                  disabled={isFixing}
+                  className="flex items-center gap-2 text-xs border border-red-500/20 text-red-400 bg-red-500/5 px-3 py-1.5 rounded-lg hover:bg-red-500/10 transition"
+                >
+                  <Wrench size={11}/> {isFixing ? "Fixing..." : "Fix Sentiment"}
+                </button>
+                <button 
+                  onClick={() => fetch(`${API_BASE}/api/calls`).then(r=>r.json()).then(d=>{if(d.success)setCallLogs(d.calls)})} 
+                  className="flex items-center gap-2 text-xs border border-border px-3 py-1.5 rounded-lg hover:text-primary transition"
+                >
+                  <RefreshCw size={11}/> Refresh
+                </button>
+              </div>
             </div>
             <div className="bg-card border border-border rounded-2xl shadow-premium-lg overflow-hidden">
               <div className="overflow-x-auto">
@@ -660,10 +676,10 @@ export default function App() {
                             )}
                             title="Click to see real reason"
                            >
-                             {expandedSentiment[c.id || i] 
+                              {expandedSentiment[c.id || i] 
                                ? (c.sentiment && c.sentiment.toLowerCase() !== 'neutral' 
                                    ? c.sentiment.split(' ').slice(0, 2).join(' ') 
-                                   : (c.sentiment_category || 'Neutral')) 
+                                   : 'N/A') 
                                : (c.sentiment_category || 'Neutral')}
                            </button>
                         </td>
@@ -1118,6 +1134,9 @@ export default function App() {
         </div>
       )}
       </main>
+      <div className="p-4 text-center text-xs text-muted-foreground border-t border-border">
+        © 2026 Azlon AI Platform • Dashboard Version V2.2
+      </div>
     </div>
   );
 }
