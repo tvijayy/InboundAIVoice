@@ -66,7 +66,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
         
         // Emphasize personality and rules
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
-        finalPrompt += "\n\nULTRA-IMPORTANT - EMOTIONAL EVALUATION: Monitor the user's mood constantly. If they express strong emotion, you MUST call 'log_call_outcome' IMMEDIATELY. \nSTRICT RULES:\n1. 'sentiment' MUST be EXACTLY 1 or 2 words (e.g. 'Angry', 'Very Happy', 'Frustrated', 'Interested').\n2. 'category' MUST be: Positive, Negative, or Neutral.";
+        finalPrompt += "\n\nULTRA-IMPORTANT - EMOTIONAL EVALUATION: Monitor the user's mood constantly. If they express strong emotion, you MUST call 'log_call_outcome' IMMEDIATELY. \nSTRICT RULES:\n1. 'sentiment' MUST be EXACTLY 1 or 2 words (e.g. 'Angry', 'Very Happy', 'Frustrated', 'Interested').\n2. 'category' MUST be: Positive, Negative, or Neutral.\n3. CALL TERMINATION: As soon as you say your final goodbye (e.g., 'Have a great day!'), you MUST call 'hang_up' IMMEDIATELY to end the session. Never wait for the caller to hang up first.";
 
         // Force https for Ultravox tool callbacks as required by their API
         const baseUrl = `https://${req.get('host')}`;
@@ -182,7 +182,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                     {
                         temporaryTool: {
                             modelToolName: "log_call_outcome",
-                            description: "Record the final outcome of the call including a descriptive sentiment word and its overall category.",
+                            description: "Record the final outcome of the call including a descriptive sentiment word and its overall category. IMPORTANT: If the caller says they are 'not interested', this is a NEGATIVE sentiment.",
                             dynamicParameters: [
                                 { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The caller's exact phone number" }, required: true },
                                 { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "A short 2-4 word phrase describing the mood (e.g. Very Relieved, Extremely Frustrated, Calm and Professional)" }, required: true },
@@ -190,6 +190,16 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                 { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
                             ],
                             http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/log_outcome` }
+                        }
+                    },
+                    {
+                        temporaryTool: {
+                            modelToolName: "hang_up",
+                            description: "Explicitly terminate the phone call and end the session. Call this as your VERY LAST action when the user says goodbye or is definitely leaving.",
+                            dynamicParameters: [
+                                { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The caller's phone number" }, required: true }
+                            ],
+                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/hang_up` }
                         }
                     }
                 ]
@@ -852,30 +862,16 @@ app.post('/api/tools/delete', async (req, res) => {
 
 app.post('/api/tools/log_outcome', async (req, res) => {
     try {
-        // ✅ FIX: Properly destructure all fields from request body
         const { phone, sentiment, category, status } = req.body;
-
-        if (!phone) {
-            console.error("[log_outcome] Missing phone number in request body.");
-            return res.json({ result: "Missing phone. Could not log outcome." });
-        }
-
         const cleanPhone = String(phone).replace(/\D/g, '');
-        console.log(`[log_outcome] AI logged for phone=${phone} | sentiment='${sentiment}' | category='${category}' | status='${status}'`);
+        console.log(`[log_outcome] AI logged phone=${phone} | sentiment='${sentiment}' | category='${category}' | status='${status}'`);
 
-        if (!sentiment || !category) {
-            console.warn("[log_outcome] Missing sentiment or category — skipping DB update.");
-            return res.json({ result: "Missing sentiment/category. Outcome not saved." });
-        }
-
-        // Validate category to only allow known values
         const validCategories = ['Positive', 'Negative', 'Neutral'];
         const safeCategory = validCategories.includes(category) ? category : 'Neutral';
 
-        // Find the most recent call for this phone number
         const { data: calls } = await supabase
             .from('calls')
-            .select('id, to_phone, from_phone')
+            .select('id')
             .or(`from_phone.ilike.%${cleanPhone}%,to_phone.ilike.%${cleanPhone}%`)
             .order('created_at', { ascending: false })
             .limit(1);
@@ -886,17 +882,42 @@ app.post('/api/tools/log_outcome', async (req, res) => {
                 sentiment_category: safeCategory,
             };
             if (status) updatePayload.call_status = status;
-
             await supabase.from('calls').update(updatePayload).eq('id', calls[0].id);
-            console.log(`[log_outcome] ✅ Saved: callId=${calls[0].id} → ${safeCategory} (${sentiment})`);
-        } else {
-            console.warn(`[log_outcome] No call found for phone: ${cleanPhone}`);
         }
-
         res.json({ result: "Outcome logged successfully." });
     } catch(err) {
-        console.error("Error logging outcome:", err);
         res.status(500).json({ result: "Failed to log outcome" });
+    }
+});
+
+app.post('/api/tools/hang_up', async (req, res) => {
+    try {
+        const { phone } = req.body;
+        console.log(`[HANGUP] AI triggered termination for phone=${phone}`);
+        const cleanPhone = String(phone).replace(/\D/g, '');
+
+        const { data: calls } = await supabase
+            .from('calls')
+            .select('id, twilio_sid')
+            .or(`from_phone.ilike.%${cleanPhone}%,to_phone.ilike.%${cleanPhone}%`)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (calls && calls.length > 0 && calls[0].twilio_sid) {
+            const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').single();
+            const TWILIO_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
+            const TWILIO_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
+
+            if (TWILIO_SID && TWILIO_AUTH) {
+                const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
+                await twilioClient.calls(calls[0].twilio_sid).update({ status: 'completed' });
+                console.log(`[HANGUP] 📞 Disconnected Twilio Call: ${calls[0].twilio_sid}`);
+            }
+        }
+        res.json({ result: "Call successfully terminated. Have a good day!" });
+    } catch(err) {
+        console.error("Hangup Error:", err);
+        res.status(500).json({ result: "Failed to hang up" });
     }
 });
 
@@ -905,7 +926,7 @@ app.post('/api/fix-sentiment', async (req, res) => {
         console.log("[SENTIMENT_FIX_v3.0] Running bidirectional mass correction on Neutral calls...");
         const { data: calls } = await supabase.from('calls').select('*').eq('sentiment_category', 'Neutral');
 
-        const negativeWords = ["frustrat", "angr", "angry", "disappoint", "complaint", "unhappy", "bad", "terrible", "rude", "escalat", "hang up", "useless", "waste"];
+        const negativeWords = ["frustrat", "angr", "angry", "disappoint", "complaint", "unhappy", "bad", "terrible", "rude", "escalat", "hang up", "useless", "waste", "not interested", "neither interested", "no thanks", "don't want", "not now", "busy"];
         const positiveWords = ["happy", "great", "thank", "helpful", "booked", "interested", "excellent", "excited", "confirmed", "resolved", "satisfied", "pleased", "appreciate"];
 
         let fixedCount = 0;
@@ -921,7 +942,8 @@ app.post('/api/fix-sentiment', async (req, res) => {
 
             if (isNegative) {
                 newCategory = 'Negative';
-                if (summary.includes("frustrat")) newReason = "Frustrated";
+                if (summary.includes("not interested") || summary.includes("neither interested") || summary.includes("no thanks")) newReason = "Not Interested";
+                else if (summary.includes("frustrat")) newReason = "Frustrated";
                 else if (summary.includes("angr")) newReason = "Angry";
                 else if (summary.includes("disappoint")) newReason = "Disappointed";
                 else if (summary.includes("escalat")) newReason = "Escalated";
