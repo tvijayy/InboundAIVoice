@@ -798,6 +798,13 @@ app.post('/api/tools/book', async (req, res) => {
             return res.json({ result: "Invalid date format. Use ISO 8601 format like 2026-04-08T15:00:00+05:30" });
         }
         
+        // --- DATA INTEGRITY FIX: Double-check availability before booking ---
+        const { data: existing } = await supabase.from('appointments').select('id').eq('start_time', startDate.toISOString()).eq('status', 'confirmed').single();
+        if (existing) {
+            console.warn(`[AI TOOL] ❌ Double-book prevented for: ${start_time}`);
+            return res.json({ result: "I am so sorry, but that exact slot was just taken by another caller while we were speaking. Please check for the next available slot or suggest a different time." });
+        }
+
         const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour duration
         
         const { data, error } = await supabase.from('appointments').insert([{ 
@@ -812,6 +819,15 @@ app.post('/api/tools/book', async (req, res) => {
         if (error) {
             console.error("Supabase booking insert error:", error);
             return res.json({ result: "Failed to save appointment. Database error." });
+        }
+
+        // --- STATUS SYNC FIX: Ensure call status is 'Booked' instantly ---
+        if (phone) {
+            const cleanPhone = String(phone).replace(/\D/g, '');
+            const { data: recentCall } = await supabase.from('calls').select('id').or(`from_phone.ilike.%${cleanPhone}%,to_phone.ilike.%${cleanPhone}%`).order('created_at', { ascending: false }).limit(1).single();
+            if (recentCall) {
+                await supabase.from('calls').update({ call_status: 'Booked' }).eq('id', recentCall.id);
+            }
         }
         
         console.log("Appointment booked successfully:", data?.[0]?.id);
@@ -1320,8 +1336,9 @@ app.get('/api/reports', async (req, res) => {
                 let s = rawStatus;
                 if (!c.duration_seconds || Number(c.duration_seconds) === 0) {
                     s = "No Connection";
-                } else if (!s) {
-                    s = (cat === 'positive' ? 'Booked' : 'Standard Inquiry');
+                } else {
+                    // Use the specific call_status column if the AI set it (Booked, Follow Up, Resolved)
+                    s = c.call_status || "Standard Inquiry";
                 }
                 
                 if (statusCounts.hasOwnProperty(s)) statusCounts[s]++;
@@ -1332,10 +1349,12 @@ app.get('/api/reports', async (req, res) => {
                     statusCounts["No Connection"]++;
                 }
 
-                // 3. Hourly Trend
+                // 3. Hourly Trend (TIMEZONE FIX: Shift UTC to IST for charts)
                 if (c.created_at) {
-                    const d = new Date(c.created_at);
-                    const hour = d.getHours();
+                    const utcDate = new Date(c.created_at);
+                    // Add 5.5 hours for IST
+                    const istDate = new Date(utcDate.getTime() + (5.5 * 60 * 60 * 1000));
+                    const hour = istDate.getUTCHours();
                     if (!isNaN(hour) && hour >= 0 && hour < 24) {
                         hourlyVolume[hour].count++;
                     }
