@@ -1276,6 +1276,7 @@ app.get('/api/reports', async (req, res) => {
         const { data: leads } = await supabase.from('leads').select('id');
         const { data: apps } = await supabase.from('appointments').select('*');
 
+        const totalCalls = calls ? calls.length : 0;
         const totalDuration = calls ? calls.reduce((acc, c) => acc + parseInt(c.duration_seconds || 0), 0) : 0;
         let positive = 0; let negative = 0; let neutral = 0;
         
