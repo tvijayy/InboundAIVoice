@@ -1136,6 +1136,32 @@ app.patch('/api/campaigns/:id', async (req, res) => {
     }
 });
 
+// --- INTEGRATIONS (TWILIO / API KEYS) ---
+app.get('/api/integrations/twilio', async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('integrations').select('*').eq('provider', 'twilio').single();
+        if (error && error.code !== 'PGRST116') throw error;
+        if (!data) return res.json({ success: true, integration: null });
+        const masked = {
+            sid: data.meta_data?.sid || '',
+            phone: data.meta_data?.phone || '',
+            api_key: data.api_key ? (data.api_key.substring(0, 4) + '****************' + data.api_key.substring(data.api_key.length - 4)) : ''
+        };
+        res.json({ success: true, integration: masked });
+    } catch(err) { res.status(500).json({ error: "Failed to fetch integration" }); }
+});
+
+app.post('/api/integrations/twilio', async (req, res) => {
+    try {
+        const { sid, api_key, phone } = req.body;
+        const payload = { provider: 'twilio', api_key: api_key, meta_data: { sid, phone } };
+        const { data: existing } = await supabase.from('integrations').select('id').eq('provider', 'twilio').single();
+        if (existing) { await supabase.from('integrations').update(payload).eq('id', existing.id); }
+        else { await supabase.from('integrations').insert([payload]); }
+        res.json({ success: true, message: "Twilio integration updated." });
+    } catch(err) { res.status(500).json({ error: "Failed to save integration" }); }
+});
+
 // --- Shared CSV Parser (used by both CSV upload and Google Sheets) ---
 function parseCSVContacts(csvText) {
     const lines = csvText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
