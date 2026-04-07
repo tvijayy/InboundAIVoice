@@ -980,7 +980,8 @@ export default function App() {
                      try {
                         showToast('Dispatching manual call...', 'success');
                         const res = await fetch(`${API_BASE}/api/calls/outbound`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ toPhone: num, voice, goal }) });
-                        if(!res.ok) throw new Error('Backend failed to dial');
+                        const data = await res.json();
+                        if(!data.success) { showToast(data.error || 'Dial failed.', 'error'); return; }
                         showToast('Call initiated successfully!', 'success');
                      } catch(e) { showToast('Call dispatch failed','error'); }
                    }} className="w-full bg-primary hover:bg-primary/90 text-white font-semibold rounded-lg p-2.5 text-sm shadow shadow-primary/20 mt-1 transition">Dial Target</button>
