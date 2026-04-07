@@ -95,6 +95,25 @@ export default function App() {
   const [viewSummaryModal, setViewSummaryModal] = useState(null);
   const [expandedSentiment, setExpandedSentiment] = useState({});
   const [manualLeadModal, setManualLeadModal] = useState(false);
+  const [newLead, setNewLead] = useState({ name: '', phone: '', email: '', ai_context: '', segment: 'Warm' });
+
+  const saveManualLead = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${API_BASE}/api/leads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...newLead, source: 'Manual Entry' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Lead successfully added to CRM!', 'success');
+        setManualLeadModal(false);
+        setNewLead({ name: '', phone: '', email: '', ai_context: '', segment: 'Warm' });
+        fetchAll(); // Refresh all data
+      }
+    } catch (e) { showToast('Failed to save lead', 'error'); }
+  };
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -845,7 +864,7 @@ export default function App() {
             <div className="bg-card border border-border rounded-2xl shadow-premium-lg overflow-hidden">
               <div className="p-4 border-b border-border bg-sidebar/30 flex justify-between items-center">
                  <h3 className="font-semibold text-sm">Lead Database</h3>
-                 <button className="bg-primary text-white px-3 py-1.5 rounded text-xs font-semibold" onClick={()=>showToast('Wait for AI to qualify!','success')}>+ Manual Lead</button>
+                 <button className="bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg text-xs font-bold transition shadow-sm" onClick={()=>setManualLeadModal(true)}>+ Manual Lead</button>
               </div>
               <table className="w-full text-left text-sm whitespace-nowrap">
                 <thead><tr className="border-b border-border"><th className="py-3 px-4 text-xs font-medium text-muted-foreground">Name</th><th className="py-3 px-4 text-xs font-medium text-muted-foreground">Phone</th><th className="py-3 px-4 text-xs font-medium text-muted-foreground">AI Context</th><th className="py-3 px-4 text-xs font-medium text-muted-foreground">Segment</th></tr></thead>
@@ -1288,36 +1307,70 @@ export default function App() {
       )}
 
       {manualLeadModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center fade-in p-4">
-          <div className="bg-card w-full max-w-md rounded-2xl shadow-premium-lg border border-border flex flex-col">
-            <div className="p-6 border-b border-border flex justify-between items-center bg-sidebar/50 rounded-t-2xl">
-              <h3 className="font-bold text-lg">Add CRM Target</h3>
-              <button onClick={() => setManualLeadModal(false)} className="text-muted-foreground hover:text-white bg-white/5 p-2 rounded-lg transition-colors"><XCircle size={20}/></button>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center fade-in p-4 text-white">
+          <div className="bg-card w-full max-w-lg rounded-3xl shadow-premium-lg border border-border flex flex-col p-8 fade-in-up">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-2xl font-black tracking-tight text-primary">Add CRM Target</h3>
+                <p className="text-xs text-muted-foreground mt-1">Populate your lead database manually with a new prospect.</p>
+              </div>
+              <button onClick={() => setManualLeadModal(false)} className="text-muted-foreground hover:text-white bg-white/5 p-2 rounded-xl transition-all"><XCircle size={24}/></button>
             </div>
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              try {
-                await fetch(`${API_BASE}/api/leads`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ 
-                    name: e.target.name.value, 
-                    phone: e.target.phone.value,
-                    email: e.target.email.value,
-                    segment: e.target.segment.value,
-                    source: 'Manual Upload'
-                  })
-                });
-                alert('Lead saved into database!');
-                setManualLeadModal(false);
-                fetch(`${API_BASE}/api/leads`).then(r=>r.json()).then(d=>{if(d.success)setLeads(d.leads||[])});
-              } catch(err) { alert('Failed.'); }
-            }} className="p-6 space-y-4">
-               <div><label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Name</label><input name="name" required placeholder="Full Name" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" /></div>
-               <div><label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Phone Number</label><input name="phone" required placeholder="+1..." className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" /></div>
-               <div><label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Email</label><input name="email" placeholder="client@company.com" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" /></div>
-               <div><label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Segment/Tags</label><input name="segment" placeholder="VIP, Follow-up, Cold, Hot" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" /></div>
-               <button type="submit" className="w-full bg-primary text-white font-bold py-3 rounded-lg shadow-lg shadow-primary/20 mt-4 transition-all hover:bg-primary/90">Save Manual Target</button>
+            <form onSubmit={saveManualLead} className="space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">Lead Name</label>
+                  <input 
+                    required 
+                    value={newLead.name}
+                    onChange={(e)=>setNewLead({...newLead, name: e.target.value})}
+                    placeholder="Full legal name" 
+                    className="w-full bg-sidebar/30 border border-border rounded-xl p-3.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all shadow-inner" 
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">Phone Number</label>
+                  <input 
+                    required 
+                    value={newLead.phone}
+                    onChange={(e)=>setNewLead({...newLead, phone: e.target.value})}
+                    placeholder="+91..." 
+                    className="w-full bg-sidebar/30 border border-border rounded-xl p-3.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all shadow-inner font-mono" 
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">Email Address (Optional)</label>
+                <input 
+                  value={newLead.email}
+                  onChange={(e)=>setNewLead({...newLead, email: e.target.value})}
+                  placeholder="client@company.com" 
+                  className="w-full bg-sidebar/30 border border-border rounded-xl p-3.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all shadow-inner" 
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">Target Segment</label>
+                <select 
+                  value={newLead.segment}
+                  onChange={(e)=>setNewLead({...newLead, segment: e.target.value})}
+                  className="w-full bg-sidebar/30 border border-border rounded-xl p-3.5 text-sm outline-none focus:border-primary transition-all cursor-pointer"
+                >
+                  <option value="Hot">🔥 Hot Lead</option>
+                  <option value="Warm">⚡ Warm Pipeline</option>
+                  <option value="Qualified">🎓 Qualified Pro</option>
+                  <option value="Cold">❄️ Cold Outreach</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">Initial AI Context</label>
+                <textarea 
+                  value={newLead.ai_context}
+                  onChange={(e)=>setNewLead({...newLead, ai_context: e.target.value})}
+                  placeholder="e.g. Previous client looking to buy in Mumbai West..." 
+                  className="w-full bg-sidebar/30 border border-border rounded-xl p-3.5 text-sm outline-none focus:border-primary h-24 resize-none transition-all shadow-inner"
+                />
+              </div>
+              <button type="submit" className="w-full bg-primary hover:bg-primary/90 text-white font-black py-4 rounded-2xl shadow-xl shadow-primary/20 mt-4 transition-all transform hover:-translate-y-0.5 active:translate-y-0 text-sm uppercase tracking-widest">Deploy Manual Target</button>
             </form>
           </div>
         </div>

@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
+const twilio = require('twilio');
 
 const app = express();
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -267,7 +268,7 @@ app.post('/api/calls/outbound', async (req, res) => {
             return res.status(400).json({ error: "Twilio credentials missing. Set them in the Dashboard." });
         }
 
-        const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
+        const twilioClient = twilio(TWILIO_SID, TWILIO_AUTH);
         
         // Use exact domain to prevent .env overrides from breaking Status Callback
         const serverBaseUrl = "https://saas-backend.xqnsvk.easypanel.host";
@@ -830,6 +831,18 @@ app.post('/api/tools/book', async (req, res) => {
         }
         
         console.log("Appointment booked successfully:", data?.[0]?.id);
+        
+        // --- LEAD CRM SYNC: Mark as Qualified/Hot ---
+        if (phone) {
+            const cleanPhone = String(phone).replace(/\D/g, '');
+            const { data: existingLead } = await supabase.from('leads').select('id').eq('phone', phone).single();
+            if (existingLead) {
+                await supabase.from('leads').update({ segment: 'Qualified', ai_context: `Booked appointment on ${startDate.toLocaleDateString()}` }).eq('id', existingLead.id);
+            } else {
+                await supabase.from('leads').insert([{ name: name || 'New Lead', phone: phone, segment: 'Qualified', source: 'AI Booking', ai_context: 'Auto-qualified via appointment booking.' }]);
+            }
+        }
+
         res.json({ result: `Appointment successfully booked for ${name || 'caller'} on ${startDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}. Confirmed!` });
     } catch(err) {
         console.error("Booking Error:", err);
@@ -918,6 +931,25 @@ app.post('/api/tools/log_outcome', async (req, res) => {
             };
             if (finalStatus) updatePayload.call_status = finalStatus;
             await supabase.from('calls').update(updatePayload).eq('id', call.id);
+
+            // --- LEAD CRM SYNC: Automatic Capture ---
+            const { data: existingLead } = await supabase.from('leads').select('id').eq('phone', phone).single();
+            const leadSegment = sentiment?.toLowerCase().includes('book') ? 'Qualified' : (safeCategory === 'Positive' ? 'Hot' : 'Warm');
+            
+            if (existingLead) {
+                await supabase.from('leads').update({ 
+                    segment: leadSegment, 
+                    ai_context: `Last Call Outcome: ${finalSentimentStr}. Mood: ${finalCat}`,
+                }).eq('id', existingLead.id);
+            } else {
+                await supabase.from('leads').insert([{
+                    name: 'New AI Lead',
+                    phone: phone,
+                    segment: leadSegment,
+                    ai_context: `AI captured outcome: ${finalSentimentStr}`,
+                    source: 'AI Voice'
+                }]);
+            }
         }
         res.json({ result: "Outcome logged successfully." });
     } catch(err) {
