@@ -238,6 +238,15 @@ export default function App() {
     }
   }, [theme]);
 
+  // MOUNT RESET: Ensure we start clean in Light Mode
+  useEffect(() => {
+    const saved = localStorage.getItem('theme');
+    if (!saved) {
+      setTheme('light');
+      document.documentElement.classList.remove('dark');
+    }
+  }, []);
+
   return (
     <div className={`flex h-screen bg-background text-foreground font-sans overflow-hidden ${theme}`}>
       
@@ -382,7 +391,7 @@ export default function App() {
                         axisLine={false} 
                         tickLine={false} 
                         tick={{ fontSize: 9, fill: '#94a3b8', fontWeight: 600 }} 
-                        interval={3}
+                        interval={0}
                         padding={{ left: 10, right: 10 }}
                       />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
