@@ -10,6 +10,13 @@ import {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://saas-backend.xqnsvk.easypanel.host';
 
+// Robust local date formatting (YYYY-MM-DD) to avoid timezone/browser discrepancies
+const toYYYYMMDD = (date) => {
+  if (!date) return '';
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
   const [twilioConfig, setTwilioConfig] = useState({ sid: '', api_key: '', phone: '' });
@@ -175,11 +182,12 @@ export default function App() {
   const fetchSlotsForDate = async (date) => {
     setLoadingSlots(true);
     // Local-safe date string (YYYY-MM-DD) avoids UTC day-shifting bug
-    const dateStr = date.toLocaleDateString('en-CA'); 
+    const dateStr = toYYYYMMDD(date); 
     setAvailableSlots([]);
 
-    // Pre-check for holidays locally for instant UI feedback
+    // PRE-CHECK: If it's a holiday, skip fetch and show closure message immediately
     if ((agentSettings?.non_working_dates || []).includes(dateStr)) {
+      console.info(`[Calendar] Date ${dateStr} is mark as HOLIDAY. Masking slots.`);
       setAvailableSlots("Business is closed on this date (marked as holiday).");
       setLoadingSlots(false);
       return;
@@ -568,14 +576,14 @@ export default function App() {
                   })}
                 </div>
                 {/* Available Slots */}
-                {((availableSlots.length > 0 || loadingSlots) || (agentSettings?.non_working_dates || []).includes(calendarDate.toLocaleDateString('en-CA'))) && (
+                {((availableSlots.length > 0 || loadingSlots) || (agentSettings?.non_working_dates || []).includes(toYYYYMMDD(calendarDate))) && (
                   <div className="mt-6 border-t border-border pt-4">
                     <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">
                       Free Slots — {calendarDate.toLocaleDateString()}
                     </h4>
                     {loadingSlots ? (
                       <div className="text-xs text-muted-foreground italic">Fetching available time slots...</div>
-                    ) : (agentSettings?.non_working_dates || []).includes(calendarDate.toLocaleDateString('en-CA')) ? (
+                    ) : (agentSettings?.non_working_dates || []).includes(toYYYYMMDD(calendarDate)) ? (
                       <div className="bg-amber-500/5 text-amber-500/60 border border-amber-500/10 p-3 rounded-lg text-xs font-medium italic">
                         Business is closed on this date (marked as holiday).
                       </div>
@@ -605,15 +613,19 @@ export default function App() {
                     </h3>
                     <div className="flex gap-2">
                       <button onClick={async () => {
-                         const dStr = calendarDate.toISOString().split('T')[0];
-                         const currArr = agentSettings?.non_working_dates || [];
-                         const isHoliday = currArr.includes(dStr);
-                         const nextArr = isHoliday ? currArr.filter(x => x !== dStr) : [...currArr, dStr];
-                         const updatedSettings = {...agentSettings, non_working_dates: nextArr};
-                         setAgentSettings(updatedSettings);
-                         await fetch(`${API_BASE}/api/agent`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(updatedSettings) });
-                      }} className={cn("text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider font-bold border transition-colors", (agentSettings?.non_working_dates || []).includes(calendarDate.toISOString().split('T')[0]) ? "bg-red-500/20 text-red-500 border-red-500/20" : "bg-white/5 border-border hover:bg-white/10 text-muted-foreground")}>
-                        {(agentSettings?.non_working_dates || []).includes(calendarDate.toISOString().split('T')[0]) ? "Holiday" : "Mark Holiday"}
+                         const dStr = toYYYYMMDD(calendarDate);
+                         setAgentSettings(prev => {
+                           const currArr = prev.non_working_dates || [];
+                           const isHoliday = currArr.includes(dStr);
+                           const nextArr = isHoliday ? currArr.filter(x => x !== dStr) : [...currArr, dStr];
+                           const updated = { ...prev, non_working_dates: nextArr };
+                           console.info(`[Holiday Toggle] date: ${dStr} | action: ${isHoliday ? 'REMOVE' : 'ADD'} | nextArr:`, nextArr);
+                           // Background sync
+                           fetch(`${API_BASE}/api/agent`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(updated) });
+                           return updated;
+                         });
+                      }} className={cn("text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider font-bold border transition-colors", (agentSettings?.non_working_dates || []).includes(toYYYYMMDD(calendarDate)) ? "bg-red-500/20 text-red-500 border-red-500/20" : "bg-white/5 border-border hover:bg-white/10 text-muted-foreground")}>
+                        {(agentSettings?.non_working_dates || []).includes(toYYYYMMDD(calendarDate)) ? "Holiday" : "Mark Holiday"}
                       </button>
                       <button onClick={() => setCalendarModal({ date: calendarDate })} className="text-[9px] bg-primary text-white border border-primary px-2 py-0.5 rounded-full uppercase tracking-wider font-bold hover:bg-primary/90 transition-colors shadow shadow-primary/20">+ Book</button>
                     </div>
