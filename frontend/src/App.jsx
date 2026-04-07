@@ -13,7 +13,10 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://saas-backend.xqns
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
   const [twilioConfig, setTwilioConfig] = useState({ sid: '', api_key: '', phone: '' });
+  const [uvConfig, setUVConfig] = useState({ api_key: '' });
   const [isSavingCreds, setIsSavingCreds] = useState(false);
+  const [isSavingUV, setIsSavingUV] = useState(false);
+
   const fetchTwilioConfig = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/integrations/twilio`);
@@ -21,9 +24,22 @@ export default function App() {
       if (data.success && data.integration) setTwilioConfig(data.integration);
     } catch (e) { }
   };
+
+  const fetchUVConfig = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/integrations/ultravox`);
+      const data = await res.json();
+      if (data.success && data.integration) setUVConfig(data.integration);
+    } catch (e) { }
+  };
+
   useEffect(() => {
-    if (activePage === 'credentials') fetchTwilioConfig();
+    if (activePage === 'credentials') {
+      fetchTwilioConfig();
+      fetchUVConfig();
+    }
   }, [activePage]);
+
   const saveTwilioConfig = async (e) => {
     e.preventDefault();
     setIsSavingCreds(true);
@@ -40,6 +56,24 @@ export default function App() {
       } else { showToast(data.error || 'Failed.', 'error'); }
     } catch (e) { showToast('Update failed.', 'error'); }
     setIsSavingCreds(false);
+  };
+
+  const saveUVConfig = async (e) => {
+    e.preventDefault();
+    setIsSavingUV(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/integrations/ultravox`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(uvConfig)
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Ultravox settings updated.', 'success');
+        fetchUVConfig();
+      } else { showToast(data.error || 'Failed.', 'error'); }
+    } catch (e) { showToast('Update failed.', 'error'); }
+    setIsSavingUV(false);
   };
   const [theme, setTheme] = useState('dark');
   const [toast, setToast] = useState(null);
@@ -1086,13 +1120,76 @@ export default function App() {
       {/* ── MODALS ── */}
         {activePage === 'credentials' && (
           <div className="space-y-8 fade-in w-full max-w-2xl mx-auto pb-12">
-            <div><h2 className="text-3xl font-extrabold tracking-tight">API & Telephony Integration</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">Configure your Twilio credentials for outbound calling</p></div>
+            <div>
+              <h2 className="text-3xl font-extrabold tracking-tight">Integration Settings</h2>
+              <p className="text-sm text-muted-foreground mt-1.5 font-medium">Configure your telephony and AI provider credentials</p>
+            </div>
+
+            {/* --- WEBHOOK DISCOVERY --- */}
+            <div className="bg-gradient-to-br from-primary/10 to-purple-500/10 border border-primary/20 rounded-2xl p-6 shadow-premium relative overflow-hidden">
+               <div className="absolute top-0 right-0 p-4 opacity-5"><Globe size={60} /></div>
+               <h3 className="text-sm font-bold text-primary uppercase tracking-widest mb-4 flex items-center gap-2">
+                 <Globe size={14} /> Inbound Webhook Setup
+               </h3>
+               <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+                 Copy this URL and paste it into your Twilio/Vobiz console under <strong>"A Call Comes In"</strong> to enable the AI Receptionist.
+               </p>
+               <div className="flex items-center gap-2 bg-background/50 border border-border p-2 rounded-xl">
+                 <code className="text-[11px] font-mono flex-1 truncate px-2">{`${API_BASE}/api/twilio/inbound`}</code>
+                 <button 
+                   onClick={() => {
+                     navigator.clipboard.writeText(`${API_BASE}/api/twilio/inbound`);
+                     showToast('Webhook URL copied to clipboard!', 'success');
+                   }}
+                   className="bg-primary hover:bg-primary/90 text-white text-[10px] font-bold px-4 py-2 rounded-lg transition-all shadow-glow"
+                 >
+                   Copy URL
+                 </button>
+               </div>
+            </div>
+
+            {/* --- TWILIO CONFIG --- */}
             <div className="bg-card border border-border rounded-2xl p-8 shadow-premium-lg">
-              <form onSubmit={saveTwilioConfig} className="space-y-6">
-                <div><label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Twilio Account SID</label><input type="text" value={twilioConfig.sid} onChange={(e) => setTwilioConfig({...twilioConfig, sid: e.target.value})} placeholder="ACxxxxxxxx" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required /></div>
-                <div><label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Twilio Auth Token</label><input type="password" value={twilioConfig.api_key} onChange={(e) => setTwilioConfig({...twilioConfig, api_key: e.target.value})} placeholder="••••••••••••" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required /><p className="text-[10px] text-muted-foreground mt-2 italic">Note: Sensitive keys are masked after saving.</p></div>
-                <div><label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Twilio Phone Number</label><input type="text" value={twilioConfig.phone} onChange={(e) => setTwilioConfig({...twilioConfig, phone: e.target.value})} placeholder="+1..." className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required /></div>
-                <div className="pt-4"><button type="submit" disabled={isSavingCreds} className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-4 rounded-xl shadow-glow transition-all flex items-center justify-center gap-2">{isSavingCreds ? 'Saving...' : 'Save Twilio Integration'}</button></div>
+              <h3 className="text-sm font-bold uppercase tracking-widest mb-6 flex items-center gap-2">
+                <Phone size={16} className="text-primary" /> Twilio Telephony
+              </h3>
+              <form onSubmit={saveTwilioConfig} className="space-y-5">
+                <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Account SID</label>
+                  <input type="text" value={twilioConfig.sid} onChange={(e) => setTwilioConfig({...twilioConfig, sid: e.target.value})} placeholder="ACxxxxxxxx" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Auth Token</label>
+                  <input type="password" value={twilioConfig.api_key} onChange={(e) => setTwilioConfig({...twilioConfig, api_key: e.target.value})} placeholder="••••••••••••" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Outbound Number</label>
+                  <input type="text" value={twilioConfig.phone} onChange={(e) => setTwilioConfig({...twilioConfig, phone: e.target.value})} placeholder="+1..." className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
+                </div>
+                <div className="pt-4">
+                  <button type="submit" disabled={isSavingCreds} className="w-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2">
+                    {isSavingCreds ? 'Saving...' : 'Update Twilio Keys'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* --- ULTRAVOX CONFIG --- */}
+            <div className="bg-card border border-border rounded-2xl p-8 shadow-premium-lg">
+              <h3 className="text-sm font-bold uppercase tracking-widest mb-6 flex items-center gap-2">
+                <Sparkles size={16} className="text-purple-400" /> Ultravox Intelligence
+              </h3>
+              <form onSubmit={saveUVConfig} className="space-y-5">
+                <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Ultravox API Key</label>
+                  <input type="password" value={uvConfig.api_key} onChange={(e) => setUVConfig({...uvConfig, api_key: e.target.value})} placeholder="uv_live_..." className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
+                  <p className="text-[10px] text-muted-foreground mt-3 italic">This key is required for the AI to process voice and speak to callers.</p>
+                </div>
+                <div className="pt-2">
+                  <button type="submit" disabled={isSavingUV} className="w-full bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2">
+                    {isSavingUV ? 'Saving...' : 'Update AI Provider Key'}
+                  </button>
+                </div>
               </form>
             </div>
           </div>

@@ -1162,6 +1162,30 @@ app.post('/api/integrations/twilio', async (req, res) => {
     } catch(err) { res.status(500).json({ error: "Failed to save integration" }); }
 });
 
+// --- ULTRAVOX INTEGRATION ---
+app.get('/api/integrations/ultravox', async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('integrations').select('*').eq('provider', 'ultravox').single();
+        if (error && error.code !== 'PGRST116') throw error;
+        if (!data) return res.json({ success: true, integration: null });
+        const masked = {
+            api_key: data.api_key ? (data.api_key.substring(0, 4) + '****************' + data.api_key.substring(data.api_key.length - 4)) : ''
+        };
+        res.json({ success: true, integration: masked });
+    } catch(err) { res.status(500).json({ error: "Failed to fetch integration" }); }
+});
+
+app.post('/api/integrations/ultravox', async (req, res) => {
+    try {
+        const { api_key } = req.body;
+        const payload = { provider: 'ultravox', api_key: api_key };
+        const { data: existing } = await supabase.from('integrations').select('id').eq('provider', 'ultravox').single();
+        if (existing) { await supabase.from('integrations').update(payload).eq('id', existing.id); }
+        else { await supabase.from('integrations').insert([payload]); }
+        res.json({ success: true, message: "Ultravox integration updated." });
+    } catch(err) { res.status(500).json({ error: "Failed to save integration" }); }
+});
+
 // --- Shared CSV Parser (used by both CSV upload and Google Sheets) ---
 function parseCSVContacts(csvText) {
     const lines = csvText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
