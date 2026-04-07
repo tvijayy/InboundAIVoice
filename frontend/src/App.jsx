@@ -177,6 +177,14 @@ export default function App() {
     // Local-safe date string (YYYY-MM-DD) avoids UTC day-shifting bug
     const dateStr = date.toLocaleDateString('en-CA'); 
     setAvailableSlots([]);
+
+    // Pre-check for holidays locally for instant UI feedback
+    if ((agentSettings?.non_working_dates || []).includes(dateStr)) {
+      setAvailableSlots("Business is closed on this date (marked as holiday).");
+      setLoadingSlots(false);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/api/tools/availability`, {
         method: 'POST',
@@ -391,6 +399,10 @@ export default function App() {
                         axisLine={false} 
                         tickLine={false} 
                         tick={{ fontSize: 9, fill: '#94a3b8', fontWeight: 600 }} 
+                        tickFormatter={(value) => {
+                          if (value === '12 AM' || value === '12 PM' || value === '11 PM') return value;
+                          return value.replace(' AM', '').replace(' PM', '');
+                        }}
                         interval={0}
                         padding={{ left: 10, right: 10 }}
                       />
@@ -556,13 +568,17 @@ export default function App() {
                   })}
                 </div>
                 {/* Available Slots */}
-                {(availableSlots.length > 0 || loadingSlots) && (
+                {((availableSlots.length > 0 || loadingSlots) || (agentSettings?.non_working_dates || []).includes(calendarDate.toLocaleDateString('en-CA'))) && (
                   <div className="mt-6 border-t border-border pt-4">
                     <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-3">
                       Free Slots — {calendarDate.toLocaleDateString()}
                     </h4>
                     {loadingSlots ? (
                       <div className="text-xs text-muted-foreground italic">Fetching available time slots...</div>
+                    ) : (agentSettings?.non_working_dates || []).includes(calendarDate.toLocaleDateString('en-CA')) ? (
+                      <div className="bg-amber-500/5 text-amber-500/60 border border-amber-500/10 p-3 rounded-lg text-xs font-medium italic">
+                        Business is closed on this date (marked as holiday).
+                      </div>
                     ) : Array.isArray(availableSlots) && availableSlots.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {availableSlots.map((slot, i) => (
