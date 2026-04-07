@@ -1,0 +1,196 @@
+{
+  "name": "1. Vobiz Inbound to Ultravox",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vobiz-inbound",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.body.Event || $json.body.event || $header['x-vobiz-event'] }}",
+              "value2": "CallInitiated"
+            }
+          ]
+        }
+      },
+      "name": "Is Call Initiated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [200, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.ultravox.ai/api/calls",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "OuX6U0mC.8yXCPVxDFd2eUDhjBzW7d7bwzT8rnhAO"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "systemPrompt",
+              "value": "You are a helpful and polite virtual assistant. Listen to the user carefully and provide short, concise answers."
+            },
+            {
+              "name": "voice",
+              "value": "Mark"
+            },
+            {
+              "name": "languageHint",
+              "value": "en-IN"
+            },
+            {
+              "name": "firstSpeaker",
+              "value": "FIRST_SPEAKER_AGENT"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Create Ultravox Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nogenjcnkwrubjtxyoqh.supabase.co/rest/v1/active_calls",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vZ2VuamNua3dydWJqdHh1b3FoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1ODcxMDgsImV4cCI6MjA4OTE2MzEwOH0.e7BOmWoU6Ez32_BgfSc0EhmZul9oTSr-sSUEmgFGO4M"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vZ2VuamNua3dydWJqdHh1b3FoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1ODcxMDgsImV4cCI6MjA4OTE2MzEwOH0.e7BOmWoU6Ez32_BgfSc0EhmZul9oTSr-sSUEmgFGO4M"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "room_id",
+              "value": "={{ $json.callId }}"
+            },
+            {
+              "name": "phone",
+              "value": "={{ $('Webhook').item.json.body.From || 'unknown' }}"
+            },
+            {
+              "name": "status",
+              "value": "active"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Supabase: Save Active Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, -200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"action\": \"connect\",\n  \"url\": \"{{$json.joinUrl}}\",\n  \"callId\": \"{{$json.callId}}\"\n}",
+        "options": {}
+      },
+      "name": "Respond with JoinUrl",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [850, -100]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"status\": \"ignored\"\n}",
+        "options": {}
+      },
+      "name": "Respond OK (Ignore)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [450, 100]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Is Call Initiated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Call Initiated?": {
+      "main": [
+        [
+          {
+            "node": "Create Ultravox Call",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond OK (Ignore)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Ultravox Call": {
+      "main": [
+        [
+          {
+            "node": "Supabase: Save Active Call",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond with JoinUrl",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

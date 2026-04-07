@@ -1,0 +1,177 @@
+{
+  "name": "2. Ultravox Events (Post-Call)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ultravox-events",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.body.type || $json.body.event }}",
+              "value2": "call.ended"
+            }
+          ]
+        }
+      },
+      "name": "If Call Ended",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [200, 0]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.ultravox.ai/api/calls/{{ $('Webhook').item.json.body.callId || $('Webhook').item.json.body.call_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "OuX6U0mC.8yXCPVxDFd2eUDhjBzW7d7bwzT8rnhAO"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Get Call Messages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, -100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nogenjcnkwrubjtxyoqh.supabase.co/rest/v1/active_calls",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vZ2VuamNua3dydWJqdHh1b3FoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1ODcxMDgsImV4cCI6MjA4OTE2MzEwOH0.e7BOmWoU6Ez32_BgfSc0EhmZul9oTSr-sSUEmgFGO4M"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vZ2VuamNua3dydWJqdHh1b3FoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1ODcxMDgsImV4cCI6MjA4OTE2MzEwOH0.e7BOmWoU6Ez32_BgfSc0EhmZul9oTSr-sSUEmgFGO4M"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "resolution=merge-duplicates"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "room_id",
+              "value": "={{ $('Webhook').item.json.body.callId || $('Webhook').item.json.body.call_id }}"
+            },
+            {
+              "name": "status",
+              "value": "completed"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Supabase: Mark Call Completed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [700, -200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://nogenjcnkwrubjtxyoqh.supabase.co/rest/v1/call_logs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vZ2VuamNua3dydWJqdHh1b3FoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1ODcxMDgsImV4cCI6MjA4OTE2MzEwOH0.e7BOmWoU6Ez32_BgfSc0EhmZul9oTSr-sSUEmgFGO4M"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5vZ2VuamNua3dydWJqdHh1b3FoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1ODcxMDgsImV4cCI6MjA4OTE2MzEwOH0.e7BOmWoU6Ez32_BgfSc0EhmZul9oTSr-sSUEmgFGO4M"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "room_id",
+              "value": "={{ $('Webhook').item.json.body.callId || $('Webhook').item.json.body.call_id }}"
+            },
+            {
+              "name": "transcript",
+              "value": "={{ JSON.stringify($json.results) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Supabase: Save Transcript",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [700, 0]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "If Call Ended",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If Call Ended": {
+      "main": [
+        [
+          {
+            "node": "Get Call Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Call Messages": {
+      "main": [
+        [
+          {
+            "node": "Supabase: Mark Call Completed",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Supabase: Save Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
