@@ -67,7 +67,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
         
         // Emphasize personality and rules
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
-        finalPrompt += "\n\nULTRA-IMPORTANT - EMOTIONAL EVALUATION: Monitor the user's mood and call status. \nSTRICT RULES:\n1. 'sentiment' MUST be EXACTLY 1 or 2 words (e.g. 'Angry', 'Looking for job', 'Interested'). Use 'Booked' ONLY IF you successfully confirmed a calendar slot.\n2. 'category' MUST be: Positive, Negative, or Neutral.\n3. CALL TERMINATION: As soon as you say a FINAL goodbye at the end of a successful session (e.g., 'Have a great day!') or the caller says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for the caller to hang up first. Do NOT use hang_up for apologies or errors.";
+        finalPrompt += "\n\nULTRA-IMPORTANT - CALL TERMINATION: As soon as you say a FINAL goodbye at the end of a session (e.g., 'Have a great day!' or 'Goodbye') or the caller says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for the caller to hang up first. This is critical to reduce telephony costs.";
 
         // Force https for Ultravox tool callbacks as required by their API
         const baseUrl = `https://${req.get('host')}`;
@@ -340,7 +340,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
         if (reqGoal) finalPrompt += `\n\n[PRIMARY MISSION GOAL]: ${reqGoal}`;
-        finalPrompt += "\n\nULTRA-IMPORTANT - EMOTIONAL EVALUATION: Monitor the lead's mood constantly. If they express strong emotion, you MUST call 'log_call_outcome' IMMEDIATELY. \nSTRICT RULES:\n1. 'sentiment' MUST be EXACTLY 1 or 2 words (e.g. 'Angry', 'Very Happy', 'Frustrated', 'Interested').\n2. 'category' MUST be: Positive, Negative, or Neutral.";
+        finalPrompt += "\n\nULTRA-IMPORTANT - CALL TERMINATION: As soon as you say a FINAL goodbye or the lead says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for them to hang up. This is critical to reduce telephony costs.";
 
         const rawVoice = reqVoice || agentData?.voice_preset || "Mark";
         const validVoices = ["Alice", "Jessica", "Kelsey", "Priya", "Lulu", "Mark", "Victor", "Vitya", "Zdenek"];
@@ -415,6 +415,16 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
                                 { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
                             ],
                             http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/log_outcome" }
+                        }
+                    },
+                    {
+                        temporaryTool: {
+                            modelToolName: "hang_up",
+                            description: "Explicitly terminate the phone call to end the session. Call this as your VERY LAST action when the user says goodbye or is definitely leaving.",
+                            dynamicParameters: [
+                                { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The lead's phone number" }, required: true }
+                            ],
+                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/hang_up` }
                         }
                     }
                 ]
@@ -1421,7 +1431,11 @@ app.get('/api/reports', async (req, res) => {
         
         // Advanced aggregations for charting
         const statusCounts = { "Booked": 0, "Resolved": 0, "Follow Up": 0, "Missed": 0, "Standard Inquiry": 0 };
-        const hourlyVolume = new Array(24).fill(0).map((_, i) => ({ hour: `${i}:00`, count: 0 }));
+        const hourlyVolume = new Array(24).fill(0).map((_, i) => {
+            const h = i === 0 ? 12 : (i > 12 ? i - 12 : i);
+            const ampm = i < 12 ? 'AM' : 'PM';
+            return { hour: `${h} ${ampm}`, count: 0, index: i };
+        });
         const recentDurations = [];
 
         if (calls) {

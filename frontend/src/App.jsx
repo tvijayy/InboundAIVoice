@@ -75,7 +75,7 @@ export default function App() {
     } catch (e) { showToast('Update failed.', 'error'); }
     setIsSavingUV(false);
   };
-  const [theme, setTheme] = useState('dark');
+  const [theme, setTheme] = useState('light');
   const [toast, setToast] = useState(null);
 
   const [callLogs, setCallLogs] = useState([]);
@@ -377,12 +377,6 @@ export default function App() {
                         tickLine={false} 
                         tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }} 
                         interval={3}
-                        tickFormatter={(val) => {
-                          const h = parseInt(val);
-                          if (h === 0) return '12 AM';
-                          if (h === 12) return '12 PM';
-                          return h > 12 ? `${h-12} PM` : `${h} AM`;
-                        }}
                       />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
                       <Tooltip 
