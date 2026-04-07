@@ -676,45 +676,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ── API CREDENTIALS ── */}
-        {activePage === 'credentials' && (
-          <div className="space-y-6 fade-in w-full">
-            <div><h2 className="text-3xl font-extrabold tracking-tight">API Credentials</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">Store your service keys securely in Supabase</p></div>
-            <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg">
-              <form onSubmit={async (e) => {
-                e.preventDefault();
-                const btn = document.getElementById('save-cred-btn'); btn.innerText = 'Saving...';
-                const ok1 = await saveIntegration('ultravox', e.target.uv_key.value);
-                const ok2 = await saveIntegration('twilio', e.target.tw_key.value, { sid: e.target.tw_sid.value, phone: e.target.tw_phone.value });
-                
-                if (ok1 && ok2) {
-                  btn.innerText = 'Saved!';
-                  showToast('Credentials updated successfully!', 'success');
-                  setTimeout(() => btn.innerText = 'Store Credentials', 2000);
-                } else {
-                  btn.innerText = 'Store Credentials';
-                }
-              }} className="space-y-5">
-                <div>
-                  <label className="block text-xs font-bold text-muted-foreground uppercase mb-2">Ultravox API Key</label>
-                  <input name="uv_key" defaultValue={getIntegration('ultravox').api_key} type="password" placeholder="uv_live_..." className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
-                </div>
-                <div className="border-t border-border pt-5 space-y-4">
-                  <label className="block text-xs font-bold text-muted-foreground uppercase">Twilio Configuration</label>
-                  <input name="tw_sid" defaultValue={getIntegration('twilio').meta_data?.sid || ''} placeholder="Account SID" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
-                  <input name="tw_key" defaultValue={getIntegration('twilio').api_key} type="password" placeholder="Auth Token" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
-                  <input name="tw_phone" defaultValue={getIntegration('twilio').meta_data?.phone || ''} placeholder="Twilio Phone (+1...)" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
-                </div>
-                <div className="p-4 bg-primary/5 rounded-xl border border-primary/20">
-                  <p className="text-[11px] font-semibold text-primary">Integration Auto-Sync Active</p>
-                  <p className="text-[10px] text-muted-foreground mt-1 leading-relaxed">Your calendar appointments and contact CRM are automatically synchronized with the AI voice agent in real-time. Use the Lead CRM tab to manage bulk contacts.</p>
-                </div>
-                <div className="flex justify-end"><button id="save-cred-btn" type="submit" className="bg-primary text-white font-semibold px-6 py-2.5 rounded-lg text-sm">Store Credentials</button></div>
-              </form>
-            </div>
-          </div>
-        )}
-
         {/* ── CALL LOGS (Redesigned) ── */}
         {activePage === 'logs' && (
           <div className="space-y-6 fade-in w-full">
