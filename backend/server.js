@@ -40,7 +40,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
 
         // 2. Check database for Custom System Prompt and settings
         const { data: agentData } = await supabase.from('agent_settings').select('*').limit(1).single();
-        const fallbackPrompt = "You are the smart AI agent for Azlon AI Voice Platform. Keep answers extremely short, professional, and confident.";
+        const fallbackPrompt = "You are the smart AI receptionist for Azlon AI. Keep answers extremely short, professional, and confident. Focus on booking appointments and answering questions using the Knowledge Base. Avoid repeating your introduction unless specifically asked.";
         
         // 2.5 Load Knowledge Base automatically
         const { data: kbDocs } = await supabase.from('knowledge_base').select('content').eq('status', 'Active');
@@ -66,7 +66,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
         
         // Emphasize personality and rules
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
-        finalPrompt += "\n\nULTRA-IMPORTANT - EMOTIONAL EVALUATION: Monitor the user's mood constantly. If they express strong emotion, you MUST call 'log_call_outcome' IMMEDIATELY. \nSTRICT RULES:\n1. 'sentiment' MUST be EXACTLY 1 or 2 words (e.g. 'Angry', 'Very Happy', 'Frustrated', 'Interested').\n2. 'category' MUST be: Positive, Negative, or Neutral.\n3. CALL TERMINATION: As soon as you say your final goodbye (e.g., 'Have a great day!'), you MUST call 'hang_up' IMMEDIATELY to end the session. Never wait for the caller to hang up first.";
+        finalPrompt += "\n\nULTRA-IMPORTANT - EMOTIONAL EVALUATION: Monitor the user's mood and call status. \nSTRICT RULES:\n1. 'sentiment' MUST be EXACTLY 1 or 2 words (e.g. 'Angry', 'Looking for job', 'Interested'). Use 'Booked' ONLY IF you successfully confirmed a calendar slot.\n2. 'category' MUST be: Positive, Negative, or Neutral.\n3. CALL TERMINATION: As soon as you say a FINAL goodbye at the end of a successful session (e.g., 'Have a great day!') or the caller says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for the caller to hang up first. Do NOT use hang_up for apologies or errors.";
 
         // Force https for Ultravox tool callbacks as required by their API
         const baseUrl = `https://${req.get('host')}`;
@@ -467,8 +467,7 @@ app.get('/api/calls', async (req, res) => {
         const { data: calls, error } = await supabase
             .from('calls')
             .select('*')
-            .order('created_at', { ascending: false })
-            .limit(50);
+            .order('created_at', { ascending: false });
             
         if (error) throw error;
         res.json({ success: true, calls });
@@ -887,18 +886,38 @@ app.post('/api/tools/log_outcome', async (req, res) => {
 
         const { data: calls } = await supabase
             .from('calls')
-            .select('id')
+            .select('id, duration_seconds')
             .or(`from_phone.ilike.%${cleanPhone}%,to_phone.ilike.%${cleanPhone}%`)
             .order('created_at', { ascending: false })
             .limit(1);
 
         if (calls && calls.length > 0) {
+            const call = calls[0];
+            let finalStatus = status;
+            let finalSentimentStr = sentiment;
+            let finalCat = safeCategory;
+
+            // 1. Status Override: If duration > 0, it CANNOT be MISSED
+            if (Number(call.duration_seconds || 0) > 0 && (status === 'Missed' || status === 'Missed Call')) {
+                finalStatus = 'Completed';
+            }
+
+            // 2. Appointment Sanity Check: If AI says 'Booked', verify it really exists
+            if (sentiment && sentiment.toLowerCase().includes('book')) {
+                const { data: appt } = await supabase.from('appointments').select('id').eq('phone', phone).eq('status', 'confirmed').limit(1);
+                if (!appt || appt.length === 0) {
+                    finalSentimentStr = 'Interested (No Booking Found)';
+                    finalCat = 'Neutral';
+                    console.log(`[log_outcome] Correction: AI claimed "Booked" but no appt found for ${phone}. Overriding.`);
+                }
+            }
+
             const updatePayload = {
-                sentiment: sentiment,
-                sentiment_category: safeCategory,
+                sentiment: finalSentimentStr,
+                sentiment_category: finalCat,
             };
-            if (status) updatePayload.call_status = status;
-            await supabase.from('calls').update(updatePayload).eq('id', calls[0].id);
+            if (finalStatus) updatePayload.call_status = finalStatus;
+            await supabase.from('calls').update(updatePayload).eq('id', call.id);
         }
         res.json({ result: "Outcome logged successfully." });
     } catch(err) {
@@ -1360,15 +1379,19 @@ app.get('/api/reports', async (req, res) => {
                     }
                 }
 
-                // 4. Duration Trend (Last 10)
+                // 4. Duration Trend (Last 20, Sorted)
                 if (c.duration_seconds && c.created_at) {
                     recentDurations.push({
-                        time: new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                        duration: Math.round(c.duration_seconds)
+                        time: new Date(c.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
+                        duration: Math.round(c.duration_seconds),
+                        raw_time: new Date(c.created_at).getTime()
                     });
                 }
             });
         }
+
+        // Sort charts chronologically
+        recentDurations.sort((a, b) => a.raw_time - b.raw_time);
 
         res.json({ 
             success: true, 
