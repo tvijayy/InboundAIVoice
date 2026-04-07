@@ -730,7 +730,10 @@ app.post('/api/tools/availability', async (req, res) => {
         
         // 1. Check if date is manually blocked (holiday)
         const nonWorkingDates = agentData.non_working_dates || [];
-        if (nonWorkingDates.includes(target_date)) {
+        // Extract simple YYYY-MM-DD from target_date to match nonWorkingDates precisely
+        const cleanTargetDate = target_date.split('T')[0];
+        
+        if (nonWorkingDates.includes(cleanTargetDate)) {
             return res.json({ available_slots: "Business is closed on this date (marked as holiday)." });
         }
         
@@ -811,6 +814,22 @@ app.post('/api/tools/book', async (req, res) => {
         const startDate = new Date(start_time);
         if (isNaN(startDate.getTime())) {
             return res.json({ result: "Invalid date format. Use ISO 8601 format like 2026-04-08T15:00:00+05:30" });
+        }
+
+        // --- HOLIDAY & WORKING DAY GUARDRAIL ---
+        let { data: agentData } = await supabase.from('agent_settings').select('non_working_dates, working_days').limit(1).single();
+        const dateStr = startDate.toISOString().split('T')[0];
+        const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const targetDayName = days[startDate.getUTCDay()];
+
+        if (agentData) {
+            if ((agentData.non_working_dates || []).includes(dateStr)) {
+                return res.json({ result: "I apologize, but we are closed on this date for a holiday. Please suggest another day." });
+            }
+            const workingDays = Array.isArray(agentData.working_days) ? agentData.working_days : ["Mon", "Tue", "Wed", "Thu", "Fri"];
+            if (!workingDays.includes(targetDayName)) {
+                return res.json({ result: `I'm sorry, we are not open on ${targetDayName}s. Would you like to try another day?` });
+            }
         }
         
         // --- DATA INTEGRITY FIX: Double-check availability before booking ---
