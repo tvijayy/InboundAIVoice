@@ -12,6 +12,35 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://saas-backend.xqns
 
 export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
+  const [twilioConfig, setTwilioConfig] = useState({ sid: '', api_key: '', phone: '' });
+  const [isSavingCreds, setIsSavingCreds] = useState(false);
+  const fetchTwilioConfig = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/integrations/twilio`);
+      const data = await res.json();
+      if (data.success && data.integration) setTwilioConfig(data.integration);
+    } catch (e) { }
+  };
+  useEffect(() => {
+    if (activePage === 'credentials') fetchTwilioConfig();
+  }, [activePage]);
+  const saveTwilioConfig = async (e) => {
+    e.preventDefault();
+    setIsSavingCreds(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/integrations/twilio`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(twilioConfig)
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Twilio integration updated.', 'success');
+        fetchTwilioConfig();
+      } else { showToast(data.error || 'Failed.', 'error'); }
+    } catch (e) { showToast('Update failed.', 'error'); }
+    setIsSavingCreds(false);
+  };
   const [theme, setTheme] = useState('dark');
   const [toast, setToast] = useState(null);
 
@@ -1094,6 +1123,20 @@ export default function App() {
         )}
 
       {/* ── MODALS ── */}
+        {activePage === 'credentials' && (
+          <div className="space-y-8 fade-in w-full max-w-2xl mx-auto pb-12">
+            <div><h2 className="text-3xl font-extrabold tracking-tight">API & Telephony Integration</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">Configure your Twilio credentials for outbound calling</p></div>
+            <div className="bg-card border border-border rounded-2xl p-8 shadow-premium-lg">
+              <form onSubmit={saveTwilioConfig} className="space-y-6">
+                <div><label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Twilio Account SID</label><input type="text" value={twilioConfig.sid} onChange={(e) => setTwilioConfig({...twilioConfig, sid: e.target.value})} placeholder="ACxxxxxxxx" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required /></div>
+                <div><label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Twilio Auth Token</label><input type="password" value={twilioConfig.api_key} onChange={(e) => setTwilioConfig({...twilioConfig, api_key: e.target.value})} placeholder="••••••••••••" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required /><p className="text-[10px] text-muted-foreground mt-2 italic">Note: Sensitive keys are masked after saving.</p></div>
+                <div><label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Twilio Phone Number</label><input type="text" value={twilioConfig.phone} onChange={(e) => setTwilioConfig({...twilioConfig, phone: e.target.value})} placeholder="+1..." className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required /></div>
+                <div className="pt-4"><button type="submit" disabled={isSavingCreds} className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-4 rounded-xl shadow-glow transition-all flex items-center justify-center gap-2">{isSavingCreds ? 'Saving...' : 'Save Twilio Integration'}</button></div>
+              </form>
+            </div>
+          </div>
+        )}
+
       {viewSummaryModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center fade-in p-4">
           <div className="bg-card w-full max-w-2xl rounded-2xl shadow-premium-lg border border-border flex flex-col max-h-[85vh]">
