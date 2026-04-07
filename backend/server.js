@@ -1410,10 +1410,13 @@ app.get('/api/reports', async (req, res) => {
                     s = c.call_status || "Standard Inquiry";
                 }
                 
-                if (statusCounts.hasOwnProperty(s)) statusCounts[s]++;
-                else if (s.toLowerCase().includes('book')) statusCounts["Booked"]++;
-                else if (s.toLowerCase().includes('standard')) statusCounts["Standard Inquiry"]++;
-                else if (s === "No Connection") {
+                if (Object.prototype.hasOwnProperty.call(statusCounts, s)) {
+                    statusCounts[s]++;
+                } else if (s.toLowerCase().includes('book')) {
+                    statusCounts["Booked"]++;
+                } else if (s.toLowerCase().includes('standard')) {
+                    statusCounts["Standard Inquiry"]++;
+                } else if (s === "No Connection") {
                     if (!statusCounts["No Connection"]) statusCounts["No Connection"] = 0;
                     statusCounts["No Connection"]++;
                 }
@@ -1438,6 +1441,13 @@ app.get('/api/reports', async (req, res) => {
                     });
                 }
             });
+
+            // FALLBACK: If calls aren't tagged 'Booked' but appointments exist, override.
+            if (apps && apps.length > statusCounts["Booked"]) {
+                const diff = apps.length - statusCounts["Booked"];
+                statusCounts["Booked"] = apps.length;
+                if (statusCounts["Standard Inquiry"] >= diff) statusCounts["Standard Inquiry"] -= diff;
+            }
         }
 
         // Sort charts chronologically

@@ -316,9 +316,17 @@ export default function App() {
                         paddingAngle={5}
                         dataKey="value"
                       >
-                        {(reports?.outcomes || []).map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={[ '#10b981', '#06b6d4', '#f59e0b', '#ef4444', '#6366f1', '#a855f7' ][index % 6]} stroke="none" />
-                        ))}
+                        {(reports?.outcomes || []).map((entry, index) => {
+                          const COLORS = {
+                            'Booked': '#10b981', // Emerald
+                            'Resolved': '#6366f1', // Indigo
+                            'Follow Up': '#f59e0b', // Amber
+                            'Missed': '#f43f5e', // Rose
+                            'Standard Inquiry': '#3b82f6', // Blue
+                            'No Connection': '#64748b' // Slate
+                          };
+                          return <Cell key={`cell-${index}`} fill={COLORS[entry.name] || '#8b5cf6'} stroke="none" />;
+                        })}
                       </Pie>
                       <Tooltip 
                         contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
@@ -344,9 +352,24 @@ export default function App() {
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                      <XAxis dataKey="hour" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} interval={2} />
+                      <XAxis 
+                        dataKey="hour" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }} 
+                        interval={3}
+                        tickFormatter={(val) => {
+                          const h = parseInt(val);
+                          if (h === 0) return '12 AM';
+                          if (h === 12) return '12 PM';
+                          return h > 12 ? `${h-12} PM` : `${h} AM`;
+                        }}
+                      />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
-                      <Tooltip contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }} />
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px', fontSize: '12px' }}
+                        itemStyle={{ color: '#8b5cf6' }}
+                      />
                       <Area type="monotone" dataKey="count" stroke="#8b5cf6" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" />
                     </AreaChart>
                   </ResponsiveContainer>
