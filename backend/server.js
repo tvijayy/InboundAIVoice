@@ -297,7 +297,12 @@ app.post('/api/calls/outbound', async (req, res) => {
 
     } catch (error) {
         console.error("Critical Outbound Dialing Error:", error);
-        res.status(500).json({ error: error.message || "Failed to launch outbound API." });
+        // Handle Twilio Trial/Restriction errors gracefully
+        let userMessage = error.message || "Failed to launch outbound API.";
+        if (userMessage.toLowerCase().includes("not allowed") || userMessage.toLowerCase().includes("restricted")) {
+            userMessage = "Twilio Restriction: This number is not verified or allowed on your trial account.";
+        }
+        res.status(400).json({ success: false, error: userMessage });
     }
 });
 
@@ -1439,6 +1444,10 @@ app.get('/api/reports', async (req, res) => {
         const recentDurations = [];
 
         if (calls) {
+            const nowUTC = new Date();
+            const nowIST = new Date(nowUTC.getTime() + (5.5 * 60 * 60 * 1000));
+            const todayStr = nowIST.toISOString().split('T')[0]; // Current IST date (YYYY-MM-DD)
+
             calls.forEach(c => {
                 // 1. Sentiment stats
                 const cat = (c.sentiment_category || '').toLowerCase();
@@ -1470,11 +1479,15 @@ app.get('/api/reports', async (req, res) => {
                 // 3. Hourly Trend (TIMEZONE FIX: Shift UTC to IST for charts)
                 if (c.created_at) {
                     const utcDate = new Date(c.created_at);
-                    // Add 5.5 hours for IST
                     const istDate = new Date(utcDate.getTime() + (5.5 * 60 * 60 * 1000));
-                    const hour = istDate.getUTCHours();
-                    if (!isNaN(hour) && hour >= 0 && hour < 24) {
-                        hourlyVolume[hour].count++;
+                    const callDateStr = istDate.toISOString().split('T')[0];
+                    
+                    // ONLY include calls from TODAY in the hourly chart to prevent cumulative peaks
+                    if (callDateStr === todayStr) {
+                        const hour = istDate.getUTCHours();
+                        if (!isNaN(hour) && hour >= 0 && hour < 24) {
+                            hourlyVolume[hour].count++;
+                        }
                     }
                 }
 

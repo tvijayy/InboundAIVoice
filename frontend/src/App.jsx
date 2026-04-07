@@ -228,8 +228,14 @@ export default function App() {
   const today = new Date();
 
   useEffect(() => {
-    if (theme === 'dark') document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
+    // FORCE reset to 'light' for this final calibration session to override cached dark settings
+    if (theme === 'light') {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    } else {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    }
   }, [theme]);
 
   return (
@@ -375,8 +381,9 @@ export default function App() {
                         dataKey="hour" 
                         axisLine={false} 
                         tickLine={false} 
-                        tick={{ fontSize: 10, fill: '#94a3b8', fontWeight: 600 }} 
+                        tick={{ fontSize: 9, fill: '#94a3b8', fontWeight: 600 }} 
                         interval={3}
+                        padding={{ left: 10, right: 10 }}
                       />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
                       <Tooltip 
