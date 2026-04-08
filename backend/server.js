@@ -396,7 +396,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
                     {
                         temporaryTool: {
                             modelToolName: "book_appointment",
-                            description: "Book an appointment for the caller on the calendar.",
+                            description: reqName ? `Book an appointment for ${reqName} on the calendar. Use context variables directly, do NOT ask the user for name or phone.` : "Book an appointment for the caller on the calendar.",
                             dynamicParameters: [
                                 {
                                     name: "start_time",
@@ -407,13 +407,13 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
                                 {
                                     name: "name",
                                     location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "Full name of caller" },
-                                    required: true
+                                    schema: { type: "string", description: reqName ? `Must be exactly: ${reqName}` : "Full name of caller" },
+                                    required: reqName ? false : true // Required if no context, false if context exists
                                 },
                                 {
                                     name: "phone",
                                     location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "Contact number" },
+                                    schema: { type: "string", description: reqName ? `Must be exactly: ${toPhone}` : "Contact number" },
                                     required: false
                                 }
                             ],
@@ -1340,7 +1340,7 @@ async function launchCampaignWithContacts(contacts, campaignName, voice, goal, s
         for (let i = 0; i < contacts.length; i++) {
             const contact = contacts[i];
             try {
-                const webhookUrl = `${serverBaseUrl}/api/twilio/outbound-twiml?toPhone=${encodeURIComponent(contact.phone)}&voice=${encodeURIComponent(voice || '')}&goal=${encodeURIComponent(goal || '')}`;
+                const webhookUrl = `${serverBaseUrl}/api/twilio/outbound-twiml?toPhone=${encodeURIComponent(contact.phone)}&voice=${encodeURIComponent(voice || '')}&goal=${encodeURIComponent(goal || '')}&name=${encodeURIComponent(contact.name || '')}`;
                 
                 const call = await twilioClient.calls.create({
                     url: webhookUrl,
