@@ -1255,15 +1255,15 @@ export default function App() {
               </form>
             </div>
 
-            {/* --- ULTRAVOX CONFIG --- */}
+            {/* --- AZLON API CONFIG --- */}
             <div className="bg-card border border-border rounded-2xl p-8 shadow-premium-lg">
               <h3 className="text-sm font-bold uppercase tracking-widest mb-6 flex items-center gap-2">
-                <Sparkles size={16} className="text-purple-400" /> Ultravox Intelligence
+                <Sparkles size={16} className="text-purple-400" /> Azlon Intelligence
               </h3>
               <form onSubmit={saveUVConfig} className="space-y-5">
                 <div>
-                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Ultravox API Key</label>
-                  <input type="password" value={uvConfig.api_key} onChange={(e) => setUVConfig({...uvConfig, api_key: e.target.value})} placeholder="uv_live_..." className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Azlon Unique Key</label>
+                  <input type="password" value={uvConfig.api_key} onChange={(e) => setUVConfig({...uvConfig, api_key: e.target.value})} placeholder="sk_live_..." className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
                   <p className="text-[10px] text-muted-foreground mt-3 italic">This key is required for the AI to process voice and speak to callers.</p>
                 </div>
                 <div className="pt-2">
