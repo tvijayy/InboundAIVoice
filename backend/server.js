@@ -1242,12 +1242,21 @@ app.get('/api/integrations/twilio', async (req, res) => {
 app.post('/api/integrations/twilio', async (req, res) => {
     try {
         const { sid, api_key, phone } = req.body;
+        const { data: existing } = await supabase.from('integrations').select('*').eq('provider', 'twilio').single();
+        
+        let finalApiKey = api_key?.trim();
+        // If the user submitted the masked placeholder, keep their existing secret!
+        if (finalApiKey && finalApiKey.includes('****')) {
+            finalApiKey = existing?.api_key || finalApiKey;
+        }
+
         const payload = { 
             provider: 'twilio', 
-            api_key: api_key?.trim(), 
-            meta_data: { sid: sid?.trim(), phone: phone?.trim() } 
+            api_key: finalApiKey, 
+            meta_data: { sid: sid?.trim(), phone: phone?.trim() },
+            updated_at: new Date().toISOString()
         };
-        const { data: existing } = await supabase.from('integrations').select('id').eq('provider', 'twilio').single();
+        
         if (existing) { await supabase.from('integrations').update(payload).eq('id', existing.id); }
         else { await supabase.from('integrations').insert([payload]); }
         res.json({ success: true, message: "Twilio integration updated." });
@@ -1270,8 +1279,21 @@ app.get('/api/integrations/ultravox', async (req, res) => {
 app.post('/api/integrations/ultravox', async (req, res) => {
     try {
         const { api_key } = req.body;
-        const payload = { provider: 'ultravox', api_key: api_key };
-        const { data: existing } = await supabase.from('integrations').select('id').eq('provider', 'ultravox').single();
+        if (!api_key) return res.status(400).json({ error: "Missing API Key" });
+
+        const { data: existing } = await supabase.from('integrations').select('*').eq('provider', 'ultravox').single();
+        
+        let finalApiKey = api_key.trim();
+        if (finalApiKey.includes('****')) {
+            finalApiKey = existing?.api_key || finalApiKey;
+        }
+
+        const payload = { 
+            provider: 'ultravox', 
+            api_key: finalApiKey, 
+            updated_at: new Date().toISOString()
+        };
+        
         if (existing) { await supabase.from('integrations').update(payload).eq('id', existing.id); }
         else { await supabase.from('integrations').insert([payload]); }
         res.json({ success: true, message: "Ultravox integration updated." });
