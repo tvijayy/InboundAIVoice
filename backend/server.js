@@ -67,6 +67,9 @@ app.post('/api/twilio/inbound', async (req, res) => {
         
         // Emphasize personality and rules
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
+        
+        finalPrompt += `\n\n[INBOUND DATA COLLECTION RULE]: You MUST collect the caller's full name and phone number organically during the conversation if you need to book an appointment or send a follow-up. Do not proceed with booking until you have confirmed these details.`;
+        
         finalPrompt += "\n\nULTRA-IMPORTANT - CALL TERMINATION: As soon as you say a FINAL goodbye at the end of a session (e.g., 'Have a great day!' or 'Goodbye') or the caller says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for the caller to hang up first. This is critical to reduce telephony costs.";
 
         // Force https for Ultravox tool callbacks as required by their API
@@ -253,7 +256,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
 // Outbound trigger endpoint (For the React Dashboard)
 app.post('/api/calls/outbound', async (req, res) => {
     try {
-        const { toPhone, systemPrompt, voice, goal } = req.body;
+        const { toPhone, systemPrompt, voice, goal, name } = req.body;
         if (!toPhone) return res.status(400).json({ error: "Missing toPhone parameter." });
         
         console.log(`Initiating Outbound Call to: ${toPhone}`);
@@ -272,7 +275,7 @@ app.post('/api/calls/outbound', async (req, res) => {
         
         // Use exact domain to prevent .env overrides from breaking Status Callback
         const serverBaseUrl = "https://saas-backend.xqnsvk.easypanel.host";
-        const webhookUrl = `${serverBaseUrl}/api/twilio/outbound-twiml?toPhone=${encodeURIComponent(toPhone || '')}&voice=${encodeURIComponent(voice || '')}&goal=${encodeURIComponent(goal || '')}`;
+        const webhookUrl = `${serverBaseUrl}/api/twilio/outbound-twiml?toPhone=${encodeURIComponent(toPhone || '')}&voice=${encodeURIComponent(voice || '')}&goal=${encodeURIComponent(goal || '')}&name=${encodeURIComponent(name || '')}`;
 
         // 3. Directly command Twilio to physically dial the lead
         const call = await twilioClient.calls.create({
@@ -312,6 +315,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         const toPhone = req.query.toPhone;
         const reqVoice = req.query.voice;
         const reqGoal = req.query.goal;
+        const reqName = req.query.name;
 
         // 1. Fetch Ultravox Key
         const { data: uvInt } = await supabase.from('integrations').select('*').eq('provider', 'ultravox').single();
@@ -345,6 +349,13 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
         if (reqGoal) finalPrompt += `\n\n[PRIMARY MISSION GOAL]: ${reqGoal}`;
+        
+        if (reqName) {
+            finalPrompt += `\n\n[CRITICAL OUTBOUND CONTEXT]: You are initiating an outbound call to a designated lead. The lead's name is ${reqName} and their phone number is ${toPhone}. 
+            - IMPORTANT: You already know their name and phone number. DO NOT ask them for their name or their phone number. 
+            - IMPORTANT: Greet them naturally by their first name as soon as they answer (e.g., "Hi ${reqName}, how are you?").`;
+        }
+
         finalPrompt += "\n\nULTRA-IMPORTANT - CALL TERMINATION: As soon as you say a FINAL goodbye or the lead says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for them to hang up. This is critical to reduce telephony costs.";
 
         const rawVoice = reqVoice || agentData?.voice_preset || "Mark";
@@ -614,20 +625,26 @@ app.post('/api/twilio/status', async (req, res) => {
                 const summary = uvData.summary || "No summary available.";
 
                 // ── Keyword-based failsafe sentiment scanner ──────────────────
-                const negativeWords = ["frustrat", "angr", "angry", "disappoint", "complaint", "unhappy", "bad", "terrible", "don't call", "stop calling", "no further contact", "abrupt", "hangs up", "escalated", "rude", "useless", "waste"];
-                const positiveWords = ["happy", "great", "thank", "helpful", "booked", "interested", "excellent", "excited", "looking forward", "confirmed", "resolved", "satisfied", "pleased", "appreciate", "good experience"];
+                const negativeWords = ["frustrat", "angr", "angry", "disappoint", "complaint", "unhappy", "bad", "terrible", "don't call", "stop calling", "no further contact", "abrupt", "hangs up", "escalated", "rude", "useless", "waste", "not interested", "failed to book", "fail to book"];
+                const positiveWords = ["happy", "great", "thank", "helpful", "interested", "excellent", "excited", "looking forward", "confirmed", "resolved", "satisfied", "pleased", "appreciate", "good experience"];
 
                 const lowerSummary = summary.toLowerCase();
-                const isNegative = negativeWords.some(word => lowerSummary.includes(word));
-                const isPositive = positiveWords.some(word => lowerSummary.includes(word));
+                
+                // Smart check for NOT booked vs Booked
+                const isExplicitlyNotBooked = lowerSummary.includes("not book") || lowerSummary.includes("didn't book") || lowerSummary.includes("did not book") || lowerSummary.includes("no appointment") || lowerSummary.includes("unsuccessful") || lowerSummary.includes("decline");
+                const isExplicitlyBooked = !isExplicitlyNotBooked && (lowerSummary.includes("booked") || lowerSummary.includes("confirmed appointment"));
+
+                let isNegative = negativeWords.some(word => lowerSummary.includes(word)) || isExplicitlyNotBooked;
+                let isPositive = positiveWords.some(word => lowerSummary.includes(word)) || isExplicitlyBooked;
 
                 // Map a short 1-2 word reason from keywords
                 let mappedReason = null;
-                if (lowerSummary.includes("frustrat")) mappedReason = "Frustrated";
+                if (isExplicitlyNotBooked) mappedReason = "Not Booked";
+                else if (isExplicitlyBooked) mappedReason = "Booked";
+                else if (lowerSummary.includes("frustrat")) mappedReason = "Frustrated";
                 else if (lowerSummary.includes("angr")) mappedReason = "Angry";
                 else if (lowerSummary.includes("disappoint")) mappedReason = "Disappointed";
                 else if (lowerSummary.includes("escalat")) mappedReason = "Escalated";
-                else if (lowerSummary.includes("booked") || lowerSummary.includes("confirmed")) mappedReason = "Booked";
                 else if (lowerSummary.includes("interest")) mappedReason = "Interested";
                 else if (lowerSummary.includes("thank")) mappedReason = "Thankful";
                 else if (lowerSummary.includes("satisf") || lowerSummary.includes("pleased")) mappedReason = "Satisfied";
@@ -648,18 +665,19 @@ app.post('/api/twilio/status', async (req, res) => {
                     console.log(`[SENTIMENT] AI already logged: ${finalCategory} (${finalSentiment}) for ${callSid} — keeping AI result.`);
                 } else {
                     // Fallback: use keyword scan on the summary
-                    if (isNegative) {
+                    if (isNegative && !isPositive) {
                         finalCategory = 'Negative';
                         finalSentiment = mappedReason || 'Negative';
                         console.log(`[SENTIMENT] Keyword fallback → NEGATIVE for ${callSid}.`);
-                    } else if (isPositive) {
+                    } else if (isPositive && !isNegative) {
                         finalCategory = 'Positive';
                         finalSentiment = mappedReason || 'Positive';
                         console.log(`[SENTIMENT] Keyword fallback → POSITIVE for ${callSid}.`);
                     } else {
+                        // If conflict or none, default to neutral but keep reasoned tag
                         finalCategory = 'Neutral';
-                        finalSentiment = 'Neutral';
-                        console.log(`[SENTIMENT] No strong signal found — staying Neutral for ${callSid}.`);
+                        finalSentiment = mappedReason || 'Neutral';
+                        console.log(`[SENTIMENT] No strong/conflicting signal found — staying Neutral for ${callSid}.`);
                     }
                 }
 
