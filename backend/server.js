@@ -263,9 +263,9 @@ app.post('/api/calls/outbound', async (req, res) => {
 
         // 1. Check Twilio Credentials
         const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').single();
-        const TWILIO_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
-        const TWILIO_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
-        const TWILIO_PHONE = twInt?.meta_data?.phone || process.env.TWILIO_PHONE_NUMBER;
+        const TWILIO_SID = (twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID)?.trim();
+        const TWILIO_AUTH = (twInt?.api_key || process.env.TWILIO_AUTH_TOKEN)?.trim();
+        const TWILIO_PHONE = (twInt?.meta_data?.phone || process.env.TWILIO_PHONE_NUMBER)?.trim();
 
         if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_PHONE) {
             return res.status(400).json({ error: "Twilio credentials missing. Set them in the Dashboard." });
@@ -302,9 +302,13 @@ app.post('/api/calls/outbound', async (req, res) => {
         console.error("Critical Outbound Dialing Error:", error);
         // Handle Twilio Trial/Restriction errors gracefully
         let userMessage = error.message || "Failed to launch outbound API.";
-        if (userMessage.toLowerCase().includes("not allowed") || userMessage.toLowerCase().includes("restricted")) {
+        
+        if (userMessage.includes("Authenticate")) {
+            userMessage = "Twilio Authentication Failed! Invalid Account SID or Auth Token in Integration Settings.";
+        } else if (userMessage.toLowerCase().includes("not allowed") || userMessage.toLowerCase().includes("restricted")) {
             userMessage = "Twilio Restriction: This number is not verified or allowed on your trial account.";
         }
+        
         res.status(400).json({ success: false, error: userMessage });
     }
 });
@@ -1238,7 +1242,11 @@ app.get('/api/integrations/twilio', async (req, res) => {
 app.post('/api/integrations/twilio', async (req, res) => {
     try {
         const { sid, api_key, phone } = req.body;
-        const payload = { provider: 'twilio', api_key: api_key, meta_data: { sid, phone } };
+        const payload = { 
+            provider: 'twilio', 
+            api_key: api_key?.trim(), 
+            meta_data: { sid: sid?.trim(), phone: phone?.trim() } 
+        };
         const { data: existing } = await supabase.from('integrations').select('id').eq('provider', 'twilio').single();
         if (existing) { await supabase.from('integrations').update(payload).eq('id', existing.id); }
         else { await supabase.from('integrations').insert([payload]); }
@@ -1324,9 +1332,9 @@ async function launchCampaignWithContacts(contacts, campaignName, voice, goal, s
     // BACKGROUND: Sequentially dial each contact
     (async () => {
         const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').single();
-        const TWILIO_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
-        const TWILIO_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
-        const TWILIO_PHONE = twInt?.meta_data?.phone || process.env.TWILIO_PHONE_NUMBER;
+        const TWILIO_SID = (twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID)?.trim();
+        const TWILIO_AUTH = (twInt?.api_key || process.env.TWILIO_AUTH_TOKEN)?.trim();
+        const TWILIO_PHONE = (twInt?.meta_data?.phone || process.env.TWILIO_PHONE_NUMBER)?.trim();
 
         if (!TWILIO_SID || !TWILIO_AUTH || !TWILIO_PHONE) {
             console.error("Campaign aborted: Twilio credentials missing.");
@@ -1334,7 +1342,14 @@ async function launchCampaignWithContacts(contacts, campaignName, voice, goal, s
             return;
         }
 
-        const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
+        let twilioClient;
+        try {
+            twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
+        } catch(err) {
+            console.error("Twilio Initialization Error:", err.message);
+            await supabase.from('campaigns').update({ status: 'failed' }).eq('id', campaign.id);
+            return;
+        }
         const serverBaseUrl = "https://saas-backend.xqnsvk.easypanel.host";
 
         for (let i = 0; i < contacts.length; i++) {
