@@ -1253,14 +1253,22 @@ app.post('/api/integrations/twilio', async (req, res) => {
         const payload = { 
             provider: 'twilio', 
             api_key: finalApiKey, 
-            meta_data: { sid: sid?.trim(), phone: phone?.trim() },
-            updated_at: new Date().toISOString()
+            meta_data: { sid: sid?.trim(), phone: phone?.trim() }
         };
         
-        if (existing) { await supabase.from('integrations').update(payload).eq('id', existing.id); }
-        else { await supabase.from('integrations').insert([payload]); }
+        let dbErr = null;
+        if (existing) {
+            const { error } = await supabase.from('integrations').update(payload).eq('id', existing.id);
+            dbErr = error;
+        } else {
+            const { error } = await supabase.from('integrations').insert([payload]);
+            dbErr = error;
+        }
+        
+        if (dbErr) return res.status(500).json({ error: dbErr.message });
+        
         res.json({ success: true, message: "Twilio integration updated." });
-    } catch(err) { res.status(500).json({ error: "Failed to save integration" }); }
+    } catch(err) { res.status(500).json({ error: "Failed to save integration: " + err.message }); }
 });
 
 // --- ULTRAVOX INTEGRATION ---
@@ -1290,12 +1298,12 @@ app.post('/api/integrations/ultravox', async (req, res) => {
 
         const payload = { 
             provider: 'ultravox', 
-            api_key: finalApiKey, 
-            updated_at: new Date().toISOString()
+            api_key: finalApiKey
         };
         
-        if (existing) { await supabase.from('integrations').update(payload).eq('id', existing.id); }
-        else { await supabase.from('integrations').insert([payload]); }
+        const { error: uvErr } = await supabase.from('integrations').upsert(payload, { onConflict: 'provider' });
+
+        if (uvErr) return res.status(500).json({ error: uvErr.message });
         res.json({ success: true, message: "Ultravox integration updated." });
     } catch(err) { res.status(500).json({ error: "Failed to save integration" }); }
 });
