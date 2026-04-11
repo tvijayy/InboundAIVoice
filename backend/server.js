@@ -969,14 +969,18 @@ app.post('/api/tools/book', async (req, res) => {
 
         const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour duration
         
-        const { data, error } = await supabase.from('appointments').insert([{ 
+        const bookingPayload = { 
             name: name || "AI Caller", 
             phone: phone || "", 
+            email: email || null,
+            notes: req.body.notes || null,
             start_time: startDate.toISOString(), 
             end_time: endDate.toISOString(),
             status: 'confirmed',
             source: 'ai_agent'
-        }]).select();
+        };
+
+        const { data, error } = await supabase.from('appointments').insert([bookingPayload]).select();
         
         if (error) {
             console.error("Supabase booking insert error:", error);
@@ -986,13 +990,14 @@ app.post('/api/tools/book', async (req, res) => {
         // --- STATUS SYNC FIX: Ensure call status is 'Booked' instantly ---
         if (phone) {
             const cleanPhone = String(phone).replace(/\D/g, '');
+            // Search for the most recent call with a fuzzy match for the phone number
             const { data: recentCall } = await supabase.from('calls').select('id').or(`from_phone.ilike.%${cleanPhone}%,to_phone.ilike.%${cleanPhone}%`).order('created_at', { ascending: false }).limit(1).single();
             if (recentCall) {
-                await supabase.from('calls').update({ call_status: 'Booked' }).eq('id', recentCall.id);
+                await supabase.from('calls').update({ call_status: 'Booked', sentiment: 'Booked' }).eq('id', recentCall.id);
             }
         }
         
-        console.log("Appointment booked successfully:", data?.[0]?.id);
+        console.log("Appointment booked successfully:", data?.[0]?.id, bookingPayload);
         
         let leadEmail = email || null;
         if (phone) {
