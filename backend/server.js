@@ -131,15 +131,11 @@ app.post('/api/twilio/inbound', async (req, res) => {
         Today's ISO date is ${todayISO}.
         
         STRICT RULES:
-        1. ALWAYS call 'check_availability' before suggest ANY time to a caller.
-        2. DO NOT book appointments outside of the business hours or on holidays listed in the calendar.
-        3. When booking, ALWAYS use the +05:30 offset in ISO format (Example: 2026-04-08T15:00:00+05:30 for 3 PM IST).
-        4. If a caller asks to update or cancel, you MUST verify their details using the 'appointments' list provided in context.`;
-        
-        // Emphasize personality and rules
-        if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
-        
-        finalPrompt += `\n\n[INBOUND DATA COLLECTION RULE]: You MUST collect the caller's full name, phone number, and email address organically during the conversation before booking an appointment so we can send them confirmations. Do not proceed with booking until you have all three pieces of info.`;
+        1. ALWAYS call 'check_availability' before suggesting ANY time to a caller.
+        2. DO NOT book appointments outside of business hours or on holidays.
+        3. When booking, ALWAYS use the +05:30 offset in ISO format.
+        4. DATA COLLECTION: Organically collect Name, Phone, and Email BEFORE booking.
+        5. EMAIL FORMATTING: If a user says "dot" or "at", just pass that text directly to the tool. The system will fix it for you internally. DO NOT ask the user for corrections or ask them to say it in a different format.`;
         
         finalPrompt += "\n\nULTRA-IMPORTANT - CALL TERMINATION: As soon as you say a FINAL goodbye at the end of a session (e.g., 'Have a great day!' or 'Goodbye') or the caller says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for the caller to hang up first. This is critical to reduce telephony costs.";
 
@@ -903,34 +899,40 @@ app.post('/api/tools/availability', async (req, res) => {
 
 app.post('/api/tools/book', async (req, res) => {
     try {
-        let { start_time, name, phone, email } = req.body;
+        let { start_time, name, phone, email, email_address, user_email } = req.body;
+        // Support common AI parameter aliases
+        email = email || email_address || user_email;
+
         console.log("Book appointment received:", { start_time, name, phone, email });
         
         // --- STRICT AI VALIDATION GUARDRAILS ---
-        // Prevent the AI from making premature placeholder bookings
-        if (!name || name.trim() === '' || name.toLowerCase().includes('unknown') || name.toLowerCase().includes('dummy')) {
-            return res.json({ result: "BOOKING REJECTED: You MUST ask the caller for their actual FULL NAME first. The booking was not saved." });
+        if (!name || name.trim() === '' || name.toLowerCase().includes('unknown')) {
+            return res.json({ result: "BOOKING REJECTED: The 'name' parameter is missing or invalid. Ask the caller for their full name." });
         }
-        if (!phone || phone.trim() === '' || phone.toLowerCase().includes('unknown') || phone.length < 5) {
-            return res.json({ result: "BOOKING REJECTED: You MUST ask the caller for their actual PHONE NUMBER first. The booking was not saved." });
+        if (!phone || phone.trim() === '' || phone.toLowerCase().includes('unknown')) {
+            return res.json({ result: "BOOKING REJECTED: The 'phone' parameter is missing or invalid. Ask the caller for their phone number." });
         }
 
         if (email) {
-            // Aggressive auto-repair STT transcriptions where "at" and "dot" are spelled out inside the email
+            // Aggressive auto-repair STT transcriptions
             email = String(email).toLowerCase()
+                .replace(/\s+at\s+the\s+rate\s+/g, '@')
                 .replace(/\s+at\s+/g, '@')
                 .replace(/\s+dot\s+/g, '.')
+                .replace(/\s+period\s+/g, '.')
+                .replace(/\s+point\s+/g, '.')
                 .replace(/\bat\b/g, '@')
                 .replace(/\bdot\b/g, '.')
+                .replace(/\bpoint\b/g, '.')
                 .replace(/\s+/g, '');
         }
 
-        if (!email || email.includes('unknown')) {
-            return res.json({ result: "BOOKING REJECTED: Ask the caller for their email address first." });
+        if (!email || email.includes('unknown') || email.trim() === '') {
+            return res.json({ result: "BOOKING REJECTED: The 'email' parameter is missing. Ask the caller for their email address first." });
         }
 
         if (!email.includes('@')) {
-            return res.json({ result: "BOOKING REJECTED: The provided email is invalid (no '@' symbol). Please correct the formatting internally and try again. Do not ask the user to say it again." });
+            return res.json({ result: "BOOKING REJECTED: The email format is still invalid (missing @). Please try one more time INTERNAL formatting or ask for clarification once." });
         }
 
         if (!start_time) {
