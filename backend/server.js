@@ -63,7 +63,8 @@ async function dispatchOmnichannel(appointmentId, name, phone, email, templateTy
     if (phone && TWILIO_SID && TWILIO_AUTH && TWILIO_PHONE) {
         try {
             const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
-            const cleanPhone = String(phone).startsWith('+') ? String(phone) : `+${String(phone).replace(/\D/g, '')}`;
+            let nums = String(phone).replace(/\D/g, '');
+            const cleanPhone = String(phone).startsWith('+') ? String(phone) : (nums.length === 10 ? `+91${nums}` : `+${nums}`);
             // Send SMS
             await twilioClient.messages.create({ body: smsBody, from: TWILIO_PHONE, to: cleanPhone });
             console.log(`[Omnichannel] SMS sent to ${cleanPhone}`);
@@ -138,7 +139,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
         // Emphasize personality and rules
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
         
-        finalPrompt += `\n\n[INBOUND DATA COLLECTION RULE]: You MUST collect the caller's full name and phone number organically during the conversation if you need to book an appointment or send a follow-up. Do not proceed with booking until you have confirmed these details.`;
+        finalPrompt += `\n\n[INBOUND DATA COLLECTION RULE]: You MUST collect the caller's full name, phone number, and email address organically during the conversation before booking an appointment so we can send them confirmations. Do not proceed with booking until you have all three pieces of info.`;
         
         finalPrompt += "\n\nULTRA-IMPORTANT - CALL TERMINATION: As soon as you say a FINAL goodbye at the end of a session (e.g., 'Have a great day!' or 'Goodbye') or the caller says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for the caller to hang up first. This is critical to reduce telephony costs.";
 
@@ -199,7 +200,13 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                     name: "phone",
                                     location: "PARAMETER_LOCATION_BODY",
                                     schema: { type: "string", description: "Phone number" },
-                                    required: false
+                                    required: true
+                                },
+                                {
+                                    name: "email",
+                                    location: "PARAMETER_LOCATION_BODY",
+                                    schema: { type: "string", description: "Email address" },
+                                    required: true
                                 }
                             ],
                             http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/book` }
@@ -896,8 +903,8 @@ app.post('/api/tools/availability', async (req, res) => {
 
 app.post('/api/tools/book', async (req, res) => {
     try {
-        const { start_time, name, phone } = req.body;
-        console.log("Book appointment received:", { start_time, name, phone });
+        const { start_time, name, phone, email } = req.body;
+        console.log("Book appointment received:", { start_time, name, phone, email });
         
         if (!start_time) {
             return res.json({ result: "Missing start_time. Ask the caller what date and time they want." });
@@ -958,15 +965,17 @@ app.post('/api/tools/book', async (req, res) => {
         
         console.log("Appointment booked successfully:", data?.[0]?.id);
         
-        let leadEmail = null;
+        let leadEmail = email || null;
         if (phone) {
             const cleanPhone = String(phone).replace(/\D/g, '');
             const { data: existingLead } = await supabase.from('leads').select('id, email').eq('phone', phone).single();
             if (existingLead) {
-                leadEmail = existingLead.email;
-                await supabase.from('leads').update({ segment: 'Qualified', ai_context: `Booked appointment on ${startDate.toLocaleDateString()}` }).eq('id', existingLead.id);
+                leadEmail = leadEmail || existingLead.email;
+                const updatePayload = { segment: 'Qualified', ai_context: `Booked appointment on ${startDate.toLocaleDateString()}` };
+                if (email) updatePayload.email = email;
+                await supabase.from('leads').update(updatePayload).eq('id', existingLead.id);
             } else {
-                await supabase.from('leads').insert([{ name: name || 'New Lead', phone: phone, segment: 'Qualified', source: 'AI Booking', ai_context: 'Auto-qualified via appointment booking.' }]);
+                await supabase.from('leads').insert([{ name: name || 'New Lead', phone: phone, email: leadEmail, segment: 'Qualified', source: 'AI Booking', ai_context: 'Auto-qualified via appointment booking.' }]);
             }
         }
 
