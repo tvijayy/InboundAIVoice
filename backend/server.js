@@ -916,12 +916,21 @@ app.post('/api/tools/book', async (req, res) => {
         }
 
         if (email) {
-            // Auto-repair STT transcriptions where "at" and "dot" are spelled out inside the email
-            email = email.toLowerCase().replace(/\s+at\s+/g, '@').replace(/\s+dot\s+/g, '.').replace(/\s+/g, '');
+            // Aggressive auto-repair STT transcriptions where "at" and "dot" are spelled out inside the email
+            email = String(email).toLowerCase()
+                .replace(/\s+at\s+/g, '@')
+                .replace(/\s+dot\s+/g, '.')
+                .replace(/\bat\b/g, '@')
+                .replace(/\bdot\b/g, '.')
+                .replace(/\s+/g, '');
         }
 
-        if (!email || email.includes('unknown') || !email.includes('@')) {
-            return res.json({ result: "BOOKING REJECTED: The provided email is invalid. INTERNAL INSTRUCTION FOR AI AGENT: Make sure you internally convert the words 'at' and 'dot' into their literal symbols '@' and '.' before passing the email to this tool! Do not ask the user to say it again without dot and at, just do the formatting yourself internally and call the tool again." });
+        if (!email || email.includes('unknown')) {
+            return res.json({ result: "BOOKING REJECTED: Ask the caller for their email address first." });
+        }
+
+        if (!email.includes('@')) {
+            return res.json({ result: "BOOKING REJECTED: The provided email is invalid (no '@' symbol). Please correct the formatting internally and try again. Do not ask the user to say it again." });
         }
 
         if (!start_time) {
