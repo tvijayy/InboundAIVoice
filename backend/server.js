@@ -906,6 +906,18 @@ app.post('/api/tools/book', async (req, res) => {
         const { start_time, name, phone, email } = req.body;
         console.log("Book appointment received:", { start_time, name, phone, email });
         
+        // --- STRICT AI VALIDATION GUARDRAILS ---
+        // Prevent the AI from making premature placeholder bookings
+        if (!name || name.trim() === '' || name.toLowerCase().includes('unknown') || name.toLowerCase().includes('dummy')) {
+            return res.json({ result: "BOOKING REJECTED: You MUST ask the caller for their actual FULL NAME first. The booking was not saved." });
+        }
+        if (!phone || phone.trim() === '' || phone.toLowerCase().includes('unknown') || phone.length < 5) {
+            return res.json({ result: "BOOKING REJECTED: You MUST ask the caller for their actual PHONE NUMBER first. The booking was not saved." });
+        }
+        if (!email || email.trim() === '' || email.toLowerCase().includes('unknown') || !email.includes('@')) {
+            return res.json({ result: "BOOKING REJECTED: You MUST ask the caller for their actual EMAIL ADDRESS first. The booking was not saved." });
+        }
+
         if (!start_time) {
             return res.json({ result: "Missing start_time. Ask the caller what date and time they want." });
         }
