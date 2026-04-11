@@ -135,7 +135,11 @@ app.post('/api/twilio/inbound', async (req, res) => {
         2. DO NOT book appointments outside of business hours or on holidays.
         3. When booking, ALWAYS use the +05:30 offset in ISO format.
         4. DATA COLLECTION: Organically collect Name, Phone, and Email BEFORE booking.
-        5. EMAIL FORMATTING: If a user says "dot" or "at", just pass that text directly to the tool. The system will fix it for you internally. DO NOT ask the user for corrections or ask them to say it in a different format.`;
+        5. EMAIL HANDLING - CRITICAL: When a caller gives you an email address by voice, pass it EXACTLY as you heard it into the 'email' parameter. DO NOT validate, reformat, or spell-check it. The backend system will automatically fix it.
+           - If caller says 'contact dot simplicium at gmail dot com', pass exactly: 'contact dot simplicium at gmail dot com'
+           - If the tool returns a booking error about email, DO NOT ask the caller again. Instead just retry the booking with the same email they already gave.
+           - NEVER say phrases like 'could you spell that out', 'is that correct?', or 'can you confirm your email'. Just use what you heard.
+        6. BOOKING RETRY: If a booking attempt fails, retry ONCE automatically with the same data before giving up.`;
         
         finalPrompt += "\n\nULTRA-IMPORTANT - CALL TERMINATION: As soon as you say a FINAL goodbye at the end of a session (e.g., 'Have a great day!' or 'Goodbye') or the caller says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for the caller to hang up first. This is critical to reduce telephony costs.";
 
@@ -201,8 +205,8 @@ app.post('/api/twilio/inbound', async (req, res) => {
                                 {
                                     name: "email",
                                     location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "Email address" },
-                                    required: true
+                                    schema: { type: "string", description: "Email address exactly as spoken by the caller. Pass raw spoken text like 'contact dot name at gmail dot com' - the system will auto-convert it. Do NOT reformat or validate yourself." },
+                                    required: false
                                 }
                             ],
                             http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/book` }
@@ -897,42 +901,67 @@ app.post('/api/tools/availability', async (req, res) => {
     }
 });
 
+// Helper: extract email from any property in a body object (catches nested/aliased keys)
+function extractEmailFromBody(body) {
+    const emailKeys = ['email', 'email_address', 'user_email', 'emailAddress', 'callerEmail', 'contact_email'];
+    for (const key of emailKeys) {
+        if (body[key] && typeof body[key] === 'string' && body[key].trim() !== '') {
+            return body[key].trim();
+        }
+    }
+    // Last resort: scan all string values for something that looks email-like
+    for (const val of Object.values(body)) {
+        if (typeof val === 'string' && (val.includes('@') || val.includes(' at ') || val.includes('gmail') || val.includes('.com'))) {
+            return val.trim();
+        }
+    }
+    return null;
+}
+
+// Helper: aggressively repair STT-transcribed email text
+function repairEmail(raw) {
+    if (!raw) return null;
+    let e = String(raw).toLowerCase().trim();
+    // Replace spoken words with symbols (most specific patterns first)
+    e = e.replace(/\bat\s+the\s+rate\s+of\b/g, '@');
+    e = e.replace(/\bat\s+the\s+rate\b/g, '@');
+    e = e.replace(/\bthe\s+at\s+sign\b/g, '@');
+    e = e.replace(/\bat\s+symbol\b/g, '@');
+    e = e.replace(/\s*@\s*/g, '@');  // remove spaces around @
+    e = e.replace(/\bunder\s+score\b/g, '_');
+    e = e.replace(/\bunderscore\b/g, '_');
+    e = e.replace(/\bdash\b/g, '-');
+    e = e.replace(/\bhyphen\b/g, '-');
+    e = e.replace(/\bperiod\b/g, '.');
+    e = e.replace(/\bpoint\b/g, '.');
+    e = e.replace(/\bdot\b/g, '.');
+    e = e.replace(/\bat\b/g, '@');  // standalone 'at'
+    // Remove all remaining whitespace
+    e = e.replace(/\s+/g, '');
+    return e;
+}
+
 app.post('/api/tools/book', async (req, res) => {
     try {
-        let { start_time, name, phone, email, email_address, user_email } = req.body;
-        // Support common AI parameter aliases
-        email = email || email_address || user_email;
+        let { start_time, name, phone } = req.body;
+        // HYPER-RESILIENT: extract email from any possible parameter name/location
+        let rawEmail = extractEmailFromBody(req.body);
+        let email = repairEmail(rawEmail);
 
-        console.log("Book appointment received:", { start_time, name, phone, email });
+        console.log("[BOOK] Received:", { start_time, name, phone, rawEmail, repairedEmail: email });
         
-        // --- STRICT AI VALIDATION GUARDRAILS ---
+        // --- AI VALIDATION GUARDRAILS (softened messages to stop loops) ---
         if (!name || name.trim() === '' || name.toLowerCase().includes('unknown')) {
-            return res.json({ result: "BOOKING REJECTED: The 'name' parameter is missing or invalid. Ask the caller for their full name." });
+            return res.json({ result: "I still need the caller's full name to complete the booking. Could you please collect it?" });
         }
         if (!phone || phone.trim() === '' || phone.toLowerCase().includes('unknown')) {
-            return res.json({ result: "BOOKING REJECTED: The 'phone' parameter is missing or invalid. Ask the caller for their phone number." });
+            return res.json({ result: "I still need the caller's phone number to complete the booking. Could you please collect it?" });
         }
 
-        if (email) {
-            // Aggressive auto-repair STT transcriptions
-            email = String(email).toLowerCase()
-                .replace(/\s+at\s+the\s+rate\s+/g, '@')
-                .replace(/\s+at\s+/g, '@')
-                .replace(/\s+dot\s+/g, '.')
-                .replace(/\s+period\s+/g, '.')
-                .replace(/\s+point\s+/g, '.')
-                .replace(/\bat\b/g, '@')
-                .replace(/\bdot\b/g, '.')
-                .replace(/\bpoint\b/g, '.')
-                .replace(/\s+/g, '');
-        }
-
-        if (!email || email.includes('unknown') || email.trim() === '') {
-            return res.json({ result: "BOOKING REJECTED: The 'email' parameter is missing. Ask the caller for their email address first." });
-        }
-
-        if (!email.includes('@')) {
-            return res.json({ result: "BOOKING REJECTED: The email format is still invalid (missing @). Please try one more time INTERNAL formatting or ask for clarification once." });
+        // Email is optional — we try to book even without it, but log if missing
+        if (!email || !email.includes('@')) {
+            console.warn(`[BOOK] Email missing or invalid after repair. raw='${rawEmail}' repaired='${email}'. Proceeding without email.`);
+            email = null; // Allow booking without email rather than failing
         }
 
         if (!start_time) {
