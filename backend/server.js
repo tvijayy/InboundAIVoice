@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const twilio = require('twilio');
+const { Resend } = require('resend');
+const cron = require('node-cron');
 
 const app = express();
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -21,6 +23,74 @@ const supabase = createClient(
     process.env.SUPABASE_URL || 'https://dummy.supabase.co',
     process.env.SUPABASE_KEY || 'dummy_key'
 );
+
+// --- OMNICHANNEL NOTIFICATIONS ENGINE ---
+async function dispatchOmnichannel(appointmentId, name, phone, email, templateType, dynamicData) {
+    console.log(`[Omnichannel] Dispatching ${templateType} for ${name}`);
+
+    // Fetch keys securely from database integrations
+    const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').single();
+    const TWILIO_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
+    const TWILIO_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
+    const TWILIO_PHONE = twInt?.meta_data?.phone || process.env.TWILIO_PHONE_NUMBER;
+    // WhatsApp Sandbox default
+    const TWILIO_WHATSAPP_SENDER = 'whatsapp:+14155238886'; 
+    
+    // Fetch Resend Integration (or ENV)
+    const { data: reInt } = await supabase.from('integrations').select('*').eq('provider', 'resend').single();
+    const RESEND_API_KEY = reInt?.api_key || process.env.RESEND_API_KEY;
+
+    let smsBody = "";
+    let emailSubject = "";
+    let emailHtml = "";
+    
+    const startTimeStr = dynamicData?.start_time ? new Date(dynamicData.start_time).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : "your scheduled time";
+
+    if (templateType === 'booking_confirmed') {
+        smsBody = `Hi ${name}, your Azlon AI appointment is confirmed for ${startTimeStr}. See you soon!`;
+        emailSubject = `Your appointment is confirmed, ${name}!`;
+        emailHtml = `<h2>Booking Confirmed</h2><p>Hi ${name},</p><p>We have successfully scheduled your appointment for <b>${startTimeStr}</b>.</p><p>We look forward to speaking with you.</p>`;
+    } else if (templateType === 'meeting_reminder') {
+        smsBody = `Reminder: Hi ${name}, your meeting starts in 30 minutes at ${startTimeStr}.`;
+        emailSubject = `Reminder: Upcoming Meeting in 30 Minutes`;
+        emailHtml = `<h2>Meeting Reminder</h2><p>Hi ${name},</p><p>This is a quick reminder that your appointment is scheduled to start in 30 minutes at <b>${startTimeStr}</b>.</p>`;
+    } else if (templateType === 'meeting_missed') {
+        smsBody = `Hi ${name}, we missed you at your meeting today. Let us know when you're free to reschedule!`;
+        emailSubject = `Sorry we missed you, ${name}`;
+        emailHtml = `<h2>We missed you!</h2><p>Hi ${name},</p><p>We didn't see you at your appointment today at ${startTimeStr}.</p><p>Please let us know when you would like to reschedule!</p>`;
+    }
+
+    if (phone && TWILIO_SID && TWILIO_AUTH && TWILIO_PHONE) {
+        try {
+            const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
+            const cleanPhone = String(phone).startsWith('+') ? String(phone) : `+${String(phone).replace(/\D/g, '')}`;
+            // Send SMS
+            await twilioClient.messages.create({ body: smsBody, from: TWILIO_PHONE, to: cleanPhone });
+            console.log(`[Omnichannel] SMS sent to ${cleanPhone}`);
+            // Send WhatsApp Sandbox Message
+            await twilioClient.messages.create({ body: smsBody, from: TWILIO_WHATSAPP_SENDER, to: `whatsapp:${cleanPhone}` });
+            console.log(`[Omnichannel] WhatsApp sent to whatsapp:${cleanPhone}`);
+        } catch(e) {
+            console.error(`[Omnichannel] Twilio Error:`, e.message);
+        }
+    }
+
+    if (email && RESEND_API_KEY) {
+        try {
+            const resend = new Resend(RESEND_API_KEY);
+            await resend.emails.send({
+                from: 'Azlon AI <onboarding@resend.dev>',
+                to: [email],
+                subject: emailSubject,
+                html: emailHtml
+            });
+            console.log(`[Omnichannel] Email sent to ${email}`);
+        } catch(e) {
+            console.error(`[Omnichannel] Resend Error:`, e.message);
+        }
+    }
+}
+// --- END OMNICHANNEL ENGINE ---
 
 // Inbound webhook from Twilio
 app.post('/api/twilio/inbound', async (req, res) => {
@@ -888,16 +958,20 @@ app.post('/api/tools/book', async (req, res) => {
         
         console.log("Appointment booked successfully:", data?.[0]?.id);
         
-        // --- LEAD CRM SYNC: Mark as Qualified/Hot ---
+        let leadEmail = null;
         if (phone) {
             const cleanPhone = String(phone).replace(/\D/g, '');
-            const { data: existingLead } = await supabase.from('leads').select('id').eq('phone', phone).single();
+            const { data: existingLead } = await supabase.from('leads').select('id, email').eq('phone', phone).single();
             if (existingLead) {
+                leadEmail = existingLead.email;
                 await supabase.from('leads').update({ segment: 'Qualified', ai_context: `Booked appointment on ${startDate.toLocaleDateString()}` }).eq('id', existingLead.id);
             } else {
                 await supabase.from('leads').insert([{ name: name || 'New Lead', phone: phone, segment: 'Qualified', source: 'AI Booking', ai_context: 'Auto-qualified via appointment booking.' }]);
             }
         }
+
+        // TRIGGER CONFIRMATION ALONG WITH BOOKING
+        await dispatchOmnichannel((data?.[0]?.id || 'unknown'), name || 'caller', phone, leadEmail, 'booking_confirmed', { start_time: startDate.toISOString() });
 
         res.json({ result: `Appointment successfully booked for ${name || 'caller'} on ${startDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}. Confirmed!` });
     } catch(err) {
@@ -1133,6 +1207,15 @@ app.post('/api/appointments/manual', async (req, res) => {
             return res.status(500).json({ error: error.message || "Failed to book appointment." });
         }
         console.log('Manual appointment booked:', data?.[0]?.id);
+        
+        // TRIGGER CONFIRMATION
+        let leadEmail = null;
+        if (phone) {
+            const { data: existingLead } = await supabase.from('leads').select('email').eq('phone', phone).single();
+            if (existingLead) leadEmail = existingLead.email;
+        }
+        await dispatchOmnichannel(data[0].id, name, phone, leadEmail, 'booking_confirmed', { start_time: startDate.toISOString() });
+
         res.json({ success: true, appointment: data[0] });
     } catch(err) {
         console.error('Manual booking error:', err);
@@ -1613,6 +1696,62 @@ app.get('/api/reports', async (req, res) => {
     } catch (err) {
         console.error("Reports API Error:", err);
         res.status(500).json({ error: "Could not generate reports." });
+    }
+});
+
+// --- CRON JOBS FOR NOTIFICATIONS ---
+// Run every 5 minutes
+cron.schedule('*/5 * * * *', async () => {
+    console.log('[Cron] Checking for upcoming & missed appointments...');
+    try {
+        const now = new Date();
+        const thirtyMinsFromNow = new Date(now.getTime() + 35 * 60 * 1000);
+        const nowIso = now.toISOString();
+        const thirtyMinsIso = thirtyMinsFromNow.toISOString();
+
+        // 1. Upcoming Reminders (Starting between now and +35 mins)
+        const { data: upcoming } = await supabase.from('appointments')
+            .select('*')
+            .eq('status', 'confirmed')
+            .eq('reminder_sent', false)
+            .gte('start_time', nowIso)
+            .lte('start_time', thirtyMinsIso);
+
+        if (upcoming && upcoming.length > 0) {
+            for (const appt of upcoming) {
+                // To fetch their email, join with leads table
+                let leadEmail = appt.email;
+                if (!leadEmail && appt.phone) {
+                    const { data: ld } = await supabase.from('leads').select('email').eq('phone', appt.phone).single();
+                    if (ld?.email) leadEmail = ld.email;
+                }
+                await dispatchOmnichannel(appt.id, appt.name, appt.phone, leadEmail, 'meeting_reminder', { start_time: appt.start_time });
+                await supabase.from('appointments').update({ reminder_sent: true }).eq('id', appt.id);
+            }
+        }
+
+        // 2. Missed Appointments (NOT 'completed' AND ended in the past)
+        const { data: missed } = await supabase.from('appointments')
+            .select('*')
+            .eq('status', 'confirmed')
+            .eq('missed_notified', false)
+            .lte('end_time', nowIso); // meeting time has passed
+
+        if (missed && missed.length > 0) {
+            for (const appt of missed) {
+                let leadEmail = appt.email;
+                if (!leadEmail && appt.phone) {
+                    const { data: ld } = await supabase.from('leads').select('email').eq('phone', appt.phone).single();
+                    if (ld?.email) leadEmail = ld.email;
+                }
+                
+                await dispatchOmnichannel(appt.id, appt.name, appt.phone, leadEmail, 'meeting_missed', { start_time: appt.start_time });
+                // We auto-mark them as missed
+                await supabase.from('appointments').update({ status: 'missed', missed_notified: true }).eq('id', appt.id);
+            }
+        }
+    } catch(err) {
+        console.error('[Cron Error]', err);
     }
 });
 
