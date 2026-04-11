@@ -137,9 +137,8 @@ app.post('/api/twilio/inbound', async (req, res) => {
         4. DATA COLLECTION: Organically collect Name, Phone, and Email BEFORE booking.
         5. EMAIL HANDLING - CRITICAL: When a caller gives you an email address by voice, pass it EXACTLY as you heard it into the 'email' parameter. DO NOT validate, reformat, or spell-check it. The backend system will automatically fix it.
            - If caller says 'contact dot simplicium at gmail dot com', pass exactly: 'contact dot simplicium at gmail dot com'
-           - If the tool returns a booking error about email, DO NOT ask the caller again. Instead just retry the booking with the same email they already gave.
            - NEVER say phrases like 'could you spell that out', 'is that correct?', or 'can you confirm your email'. Just use what you heard.
-        6. BOOKING RETRY: If a booking attempt fails, retry ONCE automatically with the same data before giving up.`;
+        6. CRITICAL - ONE BOOKING ONLY: Call 'book_appointment' EXACTLY ONCE per caller per slot. NEVER retry, NEVER call it twice. If you get a conflict error, offer the caller a DIFFERENT time slot instead of retrying the same one.`;
         
         finalPrompt += "\n\nULTRA-IMPORTANT - CALL TERMINATION: As soon as you say a FINAL goodbye at the end of a session (e.g., 'Have a great day!' or 'Goodbye') or the caller says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for the caller to hang up first. This is critical to reduce telephony costs.";
 
@@ -860,12 +859,13 @@ app.post('/api/tools/availability', async (req, res) => {
             allSlots.push(`${target_date}T${timeStr}:00+05:30`);
         }
         
-        // 4. Fetch existing appointments for that day to find conflicts
+        // 4. Fetch ONLY confirmed appointments for that day to find conflicts
         const dayStart = `${target_date}T00:00:00+05:30`;
         const dayEnd = `${target_date}T23:59:59+05:30`;
         const { data: existingApps } = await supabase
             .from('appointments')
             .select('start_time')
+            .eq('status', 'confirmed')  // CRITICAL: only block confirmed slots, not missed/cancelled
             .gte('start_time', dayStart)
             .lte('start_time', dayEnd);
         
@@ -989,11 +989,18 @@ app.post('/api/tools/book', async (req, res) => {
             }
         }
         
-        // --- DATA INTEGRITY FIX: Double-check availability before booking ---
-        const { data: existing } = await supabase.from('appointments').select('id').eq('start_time', startDate.toISOString()).eq('status', 'confirmed').single();
-        if (existing) {
+        // --- DATA INTEGRITY FIX: Double-check availability before booking (window-based, not exact ISO) ---
+        const windowStart = new Date(startDate.getTime() - 30 * 1000); // 30 second buffer
+        const windowEnd = new Date(startDate.getTime() + 30 * 1000);
+        const { data: existing } = await supabase
+            .from('appointments')
+            .select('id')
+            .eq('status', 'confirmed')
+            .gte('start_time', windowStart.toISOString())
+            .lte('start_time', windowEnd.toISOString());
+        if (existing && existing.length > 0) {
             console.warn(`[AI TOOL] ❌ Double-book prevented for: ${start_time}`);
-            return res.json({ result: "I am so sorry, but that exact slot was just taken by another caller while we were speaking. Please check for the next available slot or suggest a different time." });
+            return res.json({ result: "That time slot was just taken. Please check availability again and offer the caller a different time." });
         }
 
         const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour duration
