@@ -903,7 +903,7 @@ app.post('/api/tools/availability', async (req, res) => {
 
 app.post('/api/tools/book', async (req, res) => {
     try {
-        const { start_time, name, phone, email } = req.body;
+        let { start_time, name, phone, email } = req.body;
         console.log("Book appointment received:", { start_time, name, phone, email });
         
         // --- STRICT AI VALIDATION GUARDRAILS ---
@@ -914,8 +914,14 @@ app.post('/api/tools/book', async (req, res) => {
         if (!phone || phone.trim() === '' || phone.toLowerCase().includes('unknown') || phone.length < 5) {
             return res.json({ result: "BOOKING REJECTED: You MUST ask the caller for their actual PHONE NUMBER first. The booking was not saved." });
         }
-        if (!email || email.trim() === '' || email.toLowerCase().includes('unknown') || !email.includes('@')) {
-            return res.json({ result: "BOOKING REJECTED: You MUST ask the caller for their actual EMAIL ADDRESS first. The booking was not saved." });
+
+        if (email) {
+            // Auto-repair STT transcriptions where "at" and "dot" are spelled out inside the email
+            email = email.toLowerCase().replace(/\s+at\s+/g, '@').replace(/\s+dot\s+/g, '.').replace(/\s+/g, '');
+        }
+
+        if (!email || email.includes('unknown') || !email.includes('@')) {
+            return res.json({ result: "BOOKING REJECTED: The provided email is invalid. INTERNAL INSTRUCTION FOR AI AGENT: Make sure you internally convert the words 'at' and 'dot' into their literal symbols '@' and '.' before passing the email to this tool! Do not ask the user to say it again without dot and at, just do the formatting yourself internally and call the tool again." });
         }
 
         if (!start_time) {
