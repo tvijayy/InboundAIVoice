@@ -21,8 +21,10 @@ export default function App() {
   const [activePage, setActivePage] = useState('dashboard');
   const [twilioConfig, setTwilioConfig] = useState({ sid: '', api_key: '', phone: '' });
   const [uvConfig, setUVConfig] = useState({ api_key: '' });
+  const [resendConfig, setResendConfig] = useState({ api_key: '' });
   const [isSavingCreds, setIsSavingCreds] = useState(false);
   const [isSavingUV, setIsSavingUV] = useState(false);
+  const [isSavingResend, setIsSavingResend] = useState(false);
 
   const fetchTwilioConfig = async () => {
     try {
@@ -40,10 +42,19 @@ export default function App() {
     } catch (e) { }
   };
 
+  const fetchResendConfig = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/integrations/resend`);
+      const data = await res.json();
+      if (data.success && data.integration) setResendConfig(data.integration);
+    } catch (e) { }
+  };
+
   useEffect(() => {
     if (activePage === 'credentials') {
       fetchTwilioConfig();
       fetchUVConfig();
+      fetchResendConfig();
     }
   }, [activePage]);
 
@@ -81,6 +92,24 @@ export default function App() {
       } else { showToast(data.error || 'Failed.', 'error'); }
     } catch (e) { showToast('Update failed.', 'error'); }
     setIsSavingUV(false);
+  };
+
+  const saveResendConfig = async (e) => {
+    e.preventDefault();
+    setIsSavingResend(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/integrations/resend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(resendConfig)
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Resend email API saved.', 'success');
+        fetchResendConfig();
+      } else { showToast(data.error || 'Failed.', 'error'); }
+    } catch (e) { showToast('Update failed.', 'error'); }
+    setIsSavingResend(false);
   };
   const [theme, setTheme] = useState('light');
   const [toast, setToast] = useState(null);
@@ -1269,6 +1298,25 @@ export default function App() {
                 <div className="pt-2">
                   <button type="submit" disabled={isSavingUV} className="w-full bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/30 font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2">
                     {isSavingUV ? 'Saving...' : 'Update AI Provider Key'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* --- RESEND API CONFIG --- */}
+            <div className="bg-card border border-border rounded-2xl p-8 shadow-premium-lg mt-8">
+              <h3 className="text-sm font-bold uppercase tracking-widest mb-6 flex items-center gap-2">
+                <Globe size={16} className="text-emerald-400" /> Resend Mailing API
+              </h3>
+              <form onSubmit={saveResendConfig} className="space-y-5">
+                <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Resend API Key</label>
+                  <input type="password" value={resendConfig.api_key} onChange={(e) => setResendConfig({...resendConfig, api_key: e.target.value})} placeholder="re_..." className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
+                  <p className="text-[10px] text-muted-foreground mt-3 italic">Used for automated meeting confirmations, reminders, and follow-ups.</p>
+                </div>
+                <div className="pt-2">
+                  <button type="submit" disabled={isSavingResend} className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2">
+                    {isSavingResend ? 'Saving...' : 'Update Resend Email Key'}
                   </button>
                 </div>
               </form>

@@ -1354,6 +1354,43 @@ app.post('/api/integrations/twilio', async (req, res) => {
     } catch(err) { res.status(500).json({ error: "Failed to save integration: " + err.message }); }
 });
 
+// --- RESEND INTEGRATION ---
+app.get('/api/integrations/resend', async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('integrations').select('*').eq('provider', 'resend').single();
+        if (error && error.code !== 'PGRST116') throw error;
+        if (!data) return res.json({ success: true, integration: null });
+        const masked = {
+            api_key: data.api_key ? (data.api_key.substring(0, 4) + '****************' + data.api_key.substring(data.api_key.length - 4)) : ''
+        };
+        res.json({ success: true, integration: masked });
+    } catch(err) { res.status(500).json({ error: "Failed to fetch integration" }); }
+});
+
+app.post('/api/integrations/resend', async (req, res) => {
+    try {
+        const { api_key } = req.body;
+        if (!api_key) return res.status(400).json({ error: "Missing API Key" });
+
+        const { data: existing } = await supabase.from('integrations').select('*').eq('provider', 'resend').single();
+        
+        let finalApiKey = api_key.trim();
+        if (finalApiKey.includes('****')) {
+            finalApiKey = existing?.api_key || finalApiKey;
+        }
+
+        const payload = { 
+            provider: 'resend', 
+            api_key: finalApiKey
+        };
+        
+        const { error: revErr } = await supabase.from('integrations').upsert(payload, { onConflict: 'provider' });
+
+        if (revErr) return res.status(500).json({ error: revErr.message });
+        res.json({ success: true, message: "Resend integration updated." });
+    } catch(err) { res.status(500).json({ error: "Failed to save integration" }); }
+});
+
 // --- ULTRAVOX INTEGRATION ---
 app.get('/api/integrations/ultravox', async (req, res) => {
     try {
