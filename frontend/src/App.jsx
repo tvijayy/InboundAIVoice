@@ -128,6 +128,7 @@ export default function App() {
   const [availableSlots, setAvailableSlots] = useState([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [calendarModal, setCalendarModal] = useState(null);
+  const [editingAppt, setEditingAppt] = useState(null);
   const [viewSummaryModal, setViewSummaryModal] = useState(null);
   const [expandedSentiment, setExpandedSentiment] = useState({});
   const [manualLeadModal, setManualLeadModal] = useState(false);
@@ -664,11 +665,42 @@ export default function App() {
                   ) : (
                     <div className="space-y-3">
                       {appointmentsForDate(calendarDate).map((a, i) => (
-                        <div key={i} className="bg-background rounded-lg p-3 border border-border">
-                          <div className="font-semibold text-sm">{a.name}</div>
+                        <div key={i} className="group relative bg-background rounded-lg p-3 border border-border transition hover:border-primary/50 relative">
+                          <div className="absolute top-2 right-2">
+                             <button onClick={() => setEditingAppt(editingAppt === a.id ? null : a.id)} className="text-muted-foreground hover:text-white p-1 rounded transition text-xl leading-none">•••</button>
+                             {editingAppt === a.id && (
+                                <div className="absolute top-8 right-0 bg-card border border-border rounded-xl shadow-xl w-48 py-1 z-50 animate-in slide-in-from-top-2">
+                                   <button onClick={() => {
+                                      setEditingAppt(null);
+                                      setCalendarModal({ date: new Date(a.start_time), mode: 'reschedule', rescheduleId: a.id, prefill: a });
+                                   }} className="w-full text-left px-4 py-2 text-xs hover:bg-white/5 transition">Allocate new time</button>
+                                   <button onClick={async () => {
+                                      setEditingAppt(null);
+                                      if(window.confirm("Mark as completed and book follow-up?")) {
+                                        await fetch(`${API_BASE}/api/appointments/manual/${a.id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'complete'})});
+                                        showToast('Marked complete!', 'success');
+                                        fetchAll();
+                                        setCalendarModal({ date: new Date(), prefill: a });
+                                      }
+                                   }} className="w-full text-left px-4 py-2 text-xs hover:bg-emerald-500/10 text-emerald-400 transition">Follow-up appointment</button>
+                                   <button onClick={async () => {
+                                      setEditingAppt(null);
+                                      if(window.confirm("Are you sure you want to cancel this appointment?")) {
+                                         await fetch(`${API_BASE}/api/appointments/manual/${a.id}`, { method: 'DELETE' });
+                                         showToast('Appointment deleted', 'success');
+                                         fetchAll();
+                                      }
+                                   }} className="w-full text-left px-4 py-2 text-xs hover:bg-red-500/10 text-red-500 transition">Delete appointment</button>
+                                </div>
+                             )}
+                          </div>
+                          <div className="font-semibold text-sm pr-8">{a.name}</div>
                           <div className="text-xs text-muted-foreground font-mono mt-0.5">{a.phone}</div>
-                          <div className="text-xs text-primary mt-1 font-medium">
-                            {new Date(a.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          <div className="flex items-center gap-2 mt-1.5">
+                             <span className="text-xs text-primary font-medium tracking-tight">
+                               {new Date(a.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                             </span>
+                             {a.status === 'completed' && <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded-sm uppercase tracking-widest font-bold">Done</span>}
                           </div>
                         </div>
                       ))}
@@ -1351,7 +1383,7 @@ export default function App() {
           <div className="bg-card w-full max-w-md rounded-2xl shadow-premium-lg border border-border flex flex-col">
             <div className="p-6 border-b border-border flex justify-between items-center bg-sidebar/50 rounded-t-2xl">
               <div>
-                 <h3 className="font-bold text-lg">Manual Booking</h3>
+                 <h3 className="font-bold text-lg">{calendarModal.mode === 'reschedule' ? 'Reschedule' : 'Manual Booking'}</h3>
                  <p className="text-xs text-muted-foreground font-mono mt-1">Date: {calendarModal.date.toLocaleDateString()}</p>
               </div>
               <button onClick={() => setCalendarModal(null)} className="text-muted-foreground hover:text-white bg-white/5 p-2 rounded-lg transition-colors"><XCircle size={20}/></button>
@@ -1359,35 +1391,53 @@ export default function App() {
             <form onSubmit={async (e) => {
               e.preventDefault();
               const btn = e.target.querySelector('button[type=submit]');
-              btn.innerText = 'Booking...';
-              const dateStr = calendarModal.date.toLocaleDateString('en-CA'); // YYYY-MM-DD
-              const timeStr = e.target.time.value;
+              const prevText = btn.innerText;
+              btn.innerText = 'Saving...';
+              const dateStr = e.target.date.value; // YYYY-MM-DD
+              const timeStr = e.target.time.value; // HH:mm
               const start_time = `${dateStr}T${timeStr}:00+05:30`;
               try {
-                const res = await fetch(`${API_BASE}/api/appointments/manual`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ start_time, name: e.target.name.value, phone: e.target.phone.value })
-                });
-                if(!res.ok) throw new Error('Booking failed');
-                showToast('Appointment successfully booked!', 'success');
+                let res;
+                if (calendarModal.mode === 'reschedule') {
+                  res = await fetch(`${API_BASE}/api/appointments/manual/${calendarModal.rescheduleId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'reschedule', start_time })
+                  });
+                } else {
+                  res = await fetch(`${API_BASE}/api/appointments/manual`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ start_time, name: e.target.name.value, phone: e.target.phone.value })
+                  });
+                }
+                if(!res.ok) throw new Error('Setup failed');
+                showToast(calendarModal.mode === 'reschedule' ? 'Appointment rescheduled!' : 'Appointment successfully booked!', 'success');
                 setCalendarModal(null);
                 fetchAll();
-              } catch(err) { showToast('Booking failed. Check details.','error'); btn.innerText = 'Book Now'; }
+              } catch(err) { showToast('Execution failed. Check details.','error'); btn.innerText = prevText; }
             }} className="p-6 space-y-4">
-               <div>
-                  <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Time</label>
-                  <input name="time" type="time" required className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" />
+               <div className="grid grid-cols-2 gap-3">
+                 <div>
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Date</label>
+                    <input name="date" type="date" defaultValue={toYYYYMMDD(calendarModal.date)} required className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" />
+                 </div>
+                 <div>
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Time</label>
+                    <input name="time" type="time" defaultValue={calendarModal.date.getHours().toString().padStart(2, '0') + ':' + calendarModal.date.getMinutes().toString().padStart(2, '0')} required className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" />
+                 </div>
                </div>
                <div>
                   <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Client Name</label>
-                  <input name="name" required placeholder="John Doe" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" />
+                  <input name="name" required placeholder="John Doe" defaultValue={calendarModal.prefill?.name || ''} disabled={calendarModal.mode === 'reschedule'} className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors disabled:opacity-50 cursor-not-allowed" />
                </div>
                <div>
                   <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Phone Number</label>
-                  <input name="phone" required placeholder="+1234567890" className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors" />
+                  <input name="phone" required placeholder="+1234567890" defaultValue={calendarModal.prefill?.phone || ''} disabled={calendarModal.mode === 'reschedule'} className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none focus:border-primary transition-colors disabled:opacity-50 cursor-not-allowed font-mono" />
                </div>
-               <button type="submit" className="w-full bg-primary text-white font-bold py-3 rounded-lg shadow-lg shadow-primary/20 hover:bg-primary/90 mt-4 transition-all">Record Booking Interally</button>
+               <button type="submit" className="w-full bg-primary text-white font-bold py-3 rounded-lg shadow-lg shadow-primary/20 hover:bg-primary/90 mt-4 transition-all">
+                  {calendarModal.mode === 'reschedule' ? 'Save New Time' : 'Record Booking Internally'}
+               </button>
             </form>
           </div>
         </div>

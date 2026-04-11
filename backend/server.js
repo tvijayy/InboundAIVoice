@@ -1203,7 +1203,7 @@ app.get('/api/appointments', async (req, res) => {
     }
 });
 
-// Manual appointment booking from the Dashboard
+// --- DASHBOARD APPOINTMENT MANAGEMENT ---
 app.post('/api/appointments/manual', async (req, res) => {
     try {
         const { name, phone, start_time } = req.body;
@@ -1241,6 +1241,52 @@ app.post('/api/appointments/manual', async (req, res) => {
     } catch(err) {
         console.error('Manual booking error:', err);
         res.status(500).json({ error: "Failed to book appointment." });
+    }
+});
+
+app.put('/api/appointments/manual/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { action, start_time, status } = req.body;
+
+        if (action === 'reschedule' && start_time) {
+            const startDate = new Date(start_time);
+            const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+            const { data, error } = await supabase.from('appointments').update({
+                start_time: startDate.toISOString(),
+                end_time: endDate.toISOString()
+            }).eq('id', id).select();
+
+            if (error) throw error;
+            return res.json({ success: true, appointment: data[0] });
+        } 
+        
+        if (action === 'complete' || status === 'completed') {
+            const { data, error } = await supabase.from('appointments').update({
+                status: 'completed'
+            }).eq('id', id).select();
+
+            if (error) throw error;
+            return res.json({ success: true, appointment: data[0] });
+        }
+
+        res.status(400).json({ error: "Invalid action or parameters." });
+    } catch(err) {
+        console.error('Manual update error:', err);
+        res.status(500).json({ error: "Failed to update appointment." });
+    }
+});
+
+app.delete('/api/appointments/manual/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { error } = await supabase.from('appointments').delete().eq('id', id);
+        
+        if (error) throw error;
+        res.json({ success: true });
+    } catch(err) {
+        console.error('Manual delete error:', err);
+        res.status(500).json({ error: "Failed to delete appointment." });
     }
 });
 
