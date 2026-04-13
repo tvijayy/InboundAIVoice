@@ -793,8 +793,7 @@ app.post('/api/twilio/recording-callback', async (req, res) => {
 
         // 4. Update Database
         await supabase.from('calls').update({ 
-            recording_url: finalUrl,
-            recording_sid: RecordingSid
+            recording_url: finalUrl
         }).eq('twilio_sid', CallSid);
 
         console.log(`[Recording] Successfully stored in S3: ${finalUrl}`);
