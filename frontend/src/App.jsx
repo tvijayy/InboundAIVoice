@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { BarChart3, Calendar, Bot, Mic, Key, Phone, Users, PhoneOutgoing, Globe, Sparkles, Trash2, RefreshCw, CheckCircle, XCircle, Target, BookOpen, Megaphone, Bell, Sun, Moon, Wrench, TrendingUp, Clock, Activity } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { BarChart3, Calendar, Bot, Mic, Key, Phone, Users, PhoneOutgoing, Globe, Sparkles, Trash2, RefreshCw, CheckCircle, XCircle, Target, BookOpen, Megaphone, Bell, Sun, Moon, Wrench, TrendingUp, Clock, Activity, Edit2, Send, Filter, Download, ToggleLeft, ToggleRight, Link, FileText } from 'lucide-react';
 import { cn } from './lib/utils';
 import * as XLSX from 'xlsx';
 import { 
@@ -133,6 +133,13 @@ export default function App() {
   const [expandedSentiment, setExpandedSentiment] = useState({});
   const [manualLeadModal, setManualLeadModal] = useState(false);
   const [newLead, setNewLead] = useState({ name: '', phone: '', email: '', ai_context: '', segment: 'Warm' });
+  const [campaignGoal, setCampaignGoal] = useState('');
+  const [logSentimentFilter, setLogSentimentFilter] = useState('All');
+  const [logDateFilter, setLogDateFilter] = useState({ from: '', to: '' });
+  const [kbTab, setKbTab] = useState('text'); // 'text' | 'file' | 'url'
+  const [corpusUrl, setCorpusUrl] = useState('');
+  const [corpusFile, setCorpusFile] = useState(null);
+  const [agentTools, setAgentTools] = useState({ hangUp: true, transferCall: false, queryCorpus: false });
 
   const saveManualLead = async (e) => {
     e.preventDefault();
@@ -169,7 +176,12 @@ export default function App() {
     fetch(`${API_BASE}/api/reports`).then(r => r.json()).then(d => { if (d.success) setReports(d.metrics); }).catch(() => {});
   };
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { 
+    fetchAll(); 
+    // Auto-refresh every 30 seconds
+    const autoRefresh = setInterval(() => fetchAll(), 30000);
+    return () => clearInterval(autoRefresh);
+  }, []);
 
   const [isDeleting, setIsDeleting] = useState(false);
   const [isFixing, setIsFixing] = useState(false); 
@@ -266,6 +278,7 @@ export default function App() {
     { section: 'Data' },
     { id: 'logs', label: 'Call Logs', icon: Phone },
     { id: 'leads', label: 'Lead CRM', icon: Target },
+    { id: 'integrations_logs', label: 'Integrations', icon: Send },
     { section: 'Calling' },
     { id: 'campaigns', label: 'Outbound Campaigns', icon: Megaphone },
   ];
@@ -492,8 +505,12 @@ export default function App() {
               </div>
               <div className="bg-card border border-border rounded-2xl p-6 shadow-premium">
                 <h3 className="font-bold text-sm mb-5 pb-3 border-b border-border flex items-center gap-2"><Calendar size={14} strokeWidth={2.5} className="text-primary" /> Upcoming Appointments</h3>
-                <div className="space-y-1">
-                  {appointments.slice(0, 5).map((a, i) => (
+              <div className="space-y-1">
+                  {appointments
+                    .filter(a => new Date(a.start_time) > new Date())
+                    .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+                    .slice(0, 5)
+                    .map((a, i) => (
                     <div key={i} className="flex items-center justify-between py-3 border-b border-border/30 hover:bg-white/[0.02] transition-colors rounded-lg px-2 -mx-2">
                       <div>
                         <div className="text-sm font-semibold tracking-tight">{a.name}</div>
@@ -502,7 +519,7 @@ export default function App() {
                       <div className="text-xs text-primary text-right font-semibold">{new Date(a.start_time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
                     </div>
                   ))}
-                  {appointments.length === 0 && <div className="text-center py-8 text-muted-foreground text-xs font-medium">No appointments yet</div>}
+                  {appointments.filter(a => new Date(a.start_time) > new Date()).length === 0 && <div className="text-center py-8 text-muted-foreground text-xs font-medium">No upcoming appointments</div>}
                 </div>
               </div>
             </div>
@@ -666,14 +683,24 @@ export default function App() {
                     <div className="space-y-3">
                       {appointmentsForDate(calendarDate).map((a, i) => (
                         <div key={i} className="group relative bg-background rounded-lg p-3 border border-border transition hover:border-primary/50 relative">
-                          <div className="absolute top-2 right-2">
-                             <button onClick={() => setEditingAppt(editingAppt === a.id ? null : a.id)} className="text-muted-foreground hover:text-white p-1 rounded transition text-xl leading-none">•••</button>
+                           <div className="absolute top-2 right-2">
+                             <button onClick={() => setEditingAppt(editingAppt === a.id ? null : a.id)} className="text-muted-foreground hover:text-primary p-1.5 rounded-lg transition hover:bg-white/10" title="Edit appointment">
+                               <Edit2 size={13} strokeWidth={2} />
+                             </button>
                              {editingAppt === a.id && (
                                 <div className="absolute top-8 right-0 bg-card border border-border rounded-xl shadow-xl w-48 py-1 z-50 animate-in slide-in-from-top-2">
                                    <button onClick={() => {
                                       setEditingAppt(null);
                                       setCalendarModal({ date: new Date(a.start_time), mode: 'reschedule', rescheduleId: a.id, prefill: a });
                                    }} className="w-full text-left px-4 py-2 text-xs hover:bg-white/5 transition">Allocate new time</button>
+                                   <button onClick={async () => {
+                                      setEditingAppt(null);
+                                      if(window.confirm('Mark this meeting as completed?')) {
+                                        await fetch(`${API_BASE}/api/appointments/manual/${a.id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'complete', status: 'completed' })});
+                                        showToast('Meeting marked as completed!', 'success');
+                                        fetchAll();
+                                      }
+                                   }} className="w-full text-left px-4 py-2 text-xs hover:bg-blue-500/10 text-blue-400 transition">✓ Meeting Over</button>
                                    <button onClick={async () => {
                                       setEditingAppt(null);
                                       if(window.confirm("Mark as completed and book follow-up?")) {
@@ -693,7 +720,7 @@ export default function App() {
                                    }} className="w-full text-left px-4 py-2 text-xs hover:bg-red-500/10 text-red-500 transition">Delete appointment</button>
                                 </div>
                              )}
-                          </div>
+                           </div>
                           <div className="font-semibold text-sm pr-8">{a.name}</div>
                           <div className="text-xs text-muted-foreground font-mono mt-0.5">{a.phone}</div>
                           <div className="flex items-center gap-2 mt-1.5">
@@ -759,17 +786,35 @@ export default function App() {
               </div>
               <div className="p-4">
                 <table className="w-full text-left text-sm">
-                  <thead><tr className="border-b border-border"><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Name</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Phone</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Date & Time</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Status</th></tr></thead>
+                  <thead><tr className="border-b border-border"><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Name</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Phone</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Date & Time</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">SMS Status</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Email Status</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Booking</th></tr></thead>
                   <tbody>
                     {appointments.map((a, i) => (
                       <tr key={i} className="border-b border-border/40 hover:bg-white/5 transition">
                         <td className="py-3 px-2 font-medium">{a.name}</td>
                         <td className="py-3 px-2 font-mono text-primary text-xs">{a.phone || '-'}</td>
                         <td className="py-3 px-2 text-xs">{new Date(a.start_time).toLocaleString()}</td>
-                        <td className="py-3 px-2"><span className="bg-green-500/10 text-green-400 px-2 py-0.5 rounded-full text-[10px] uppercase">{a.status || 'confirmed'}</span></td>
+                        <td className="py-3 px-2">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold ${
+                            a.sms_status === 'Sent' ? 'bg-green-500/10 text-green-400' : 
+                            a.sms_status === 'Failed' ? 'bg-red-500/10 text-red-400' : 
+                            'bg-gray-500/10 text-gray-400'
+                          }`}>
+                            {a.sms_status || 'Pending'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold ${
+                            a.email_status === 'Sent' ? 'bg-green-500/10 text-green-400' : 
+                            a.email_status === 'Failed' ? 'bg-red-500/10 text-red-500' : 
+                            'bg-gray-500/10 text-gray-400'
+                          }`}>
+                            {a.email_status || 'Pending'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2"><span className="bg-primary/10 text-primary px-2 py-0.5 rounded-full text-[10px] uppercase font-bold">{a.status || 'confirmed'}</span></td>
                       </tr>
                     ))}
-                    {appointments.length === 0 && <tr><td colSpan="4" className="text-center py-8 text-muted-foreground text-xs">No appointments booked by AI yet. Test by calling your Twilio number!</td></tr>}
+                    {appointments.length === 0 && <tr><td colSpan="6" className="text-center py-8 text-muted-foreground text-xs">No appointments booked by AI yet. Test by calling your Twilio number!</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -791,7 +836,12 @@ export default function App() {
                     greeting_message: e.target.greeting.value,
                     personality: e.target.personality.value,
                     voice_preset: e.target.voice.value,
-                    temperature: parseFloat(e.target.temp.value)
+                    temperature: parseFloat(e.target.temp.value),
+                    tools_config: {
+                      hangUp: e.target.hangUp.checked,
+                      transferCall: e.target.transferCall.checked,
+                      queryCorpus: e.target.queryCorpus.checked
+                    }
                   };
                   const res = await fetch(`${API_BASE}/api/agent`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                   const data = await res.json();
@@ -843,6 +893,28 @@ export default function App() {
                     <input name="temp" type="number" step="0.1" max="1" min="0" defaultValue={agentSettings.temperature} className="w-full bg-background border border-border rounded-lg p-3 text-sm outline-none" />
                   </div>
                 </div>
+
+                <div className="mt-8 pt-6 border-t border-border">
+                  <h3 className="font-semibold text-sm mb-4">Built-in AI Capabilities (Tool Toggling)</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {[
+                      { id: 'hangUp', label: 'Call Termination', desc: 'Allows AI to hang up' },
+                      { id: 'transferCall', label: 'Human Transfer', desc: 'Allows handoff to staff' },
+                      { id: 'queryCorpus', label: 'Knowledge Base Search', desc: 'RAG search on PDFs/Web' }
+                    ].map(tool => (
+                      <div key={tool.id} className="flex items-center justify-between p-4 bg-sidebar/30 border border-border rounded-xl">
+                        <div>
+                          <div className="text-[11px] font-bold uppercase tracking-wider">{tool.label}</div>
+                          <div className="text-[10px] text-muted-foreground">{tool.desc}</div>
+                        </div>
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input type="checkbox" name={tool.id} defaultChecked={agentSettings.tools_config?.[tool.id] ?? true} className="sr-only peer" />
+                          <div className="w-9 h-5 bg-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 <div className="mt-8 flex justify-end pt-4 border-t border-border">
                   <button id="save-agent-btn" type="submit" className="bg-primary hover:bg-primary/90 text-white font-semibold px-8 py-3 rounded-lg text-sm shadow-lg shadow-primary/20 transition">Save Configuration</button>
                 </div>
@@ -856,12 +928,41 @@ export default function App() {
           <div className="space-y-6 fade-in w-full">
             <div className="flex justify-between items-start">
               <h2 className="text-3xl font-extrabold tracking-tight">Call Logs & Telemetry</h2>
-               <div className="flex items-center gap-2">
+               <div className="flex items-center gap-3">
+                 <div className="flex bg-card border border-border rounded-xl p-1 gap-1">
+                   {['All', 'Interested', 'Not Interested', 'Follow-Up', 'Booked', 'Enquiry'].map(f => (
+                     <button key={f} onClick={() => setLogSentimentFilter(f)} className={cn("px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition", logSentimentFilter === f ? "bg-primary text-white" : "text-muted-foreground hover:bg-white/5")}>{f}</button>
+                   ))}
+                 </div>
+                 <div className="flex items-center gap-2 bg-card border border-border rounded-xl px-3 py-1.5">
+                    <Filter size={11} className="text-muted-foreground" />
+                    <input type="date" value={logDateFilter.from} onChange={e => setLogDateFilter({...logDateFilter, from: e.target.value})} className="bg-transparent text-[11px] outline-none text-muted-foreground" title="From Date" />
+                    <span className="text-muted-foreground/30 text-xs">-</span>
+                    <input type="date" value={logDateFilter.to} onChange={e => setLogDateFilter({...logDateFilter, to: e.target.value})} className="bg-transparent text-[11px] outline-none text-muted-foreground" title="To Date" />
+                 </div>
+                 <button 
+                   onClick={() => {
+                     const rows = callLogs.map(c => [new Date(c.created_at).toLocaleString(), c.caller_name||'Unknown', c.direction==='inbound'?c.from_phone:c.to_phone, c.direction, c.duration_seconds+'s', c.ai_summary||'', c.sentiment_category||'Neutral'].map(v => '"' + String(v).replace(/"/g, '""') + '"').join(','));
+                     const csv = ['Date,Name,Number,Direction,Duration,Summary,Sentiment', ...rows].join('\n');
+                     const blob = new Blob([csv], { type: 'text/csv' });
+                     const url = window.URL.createObjectURL(blob);
+                     const a = document.createElement('a');
+                     a.setAttribute('hidden', '');
+                     a.setAttribute('href', url);
+                     a.setAttribute('download', `call_report_${new Date().toISOString().split('T')[0]}.csv`);
+                     document.body.appendChild(a);
+                     a.click();
+                     document.body.removeChild(a);
+                   }}
+                   className="flex items-center gap-2 text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1.5 rounded-lg hover:bg-emerald-500/20 transition"
+                 >
+                   <Download size={11}/> Export
+                 </button>
                  <button 
                    onClick={() => fetch(`${API_BASE}/api/calls`).then(r=>r.json()).then(d=>{if(d.success)setCallLogs(d.calls)})} 
                    className="flex items-center gap-2 text-xs border border-border px-3 py-1.5 rounded-lg hover:text-primary transition"
                  >
-                   <RefreshCw size={11}/> Refresh
+                   <RefreshCw size={11}/> Sync
                  </button>
                </div>
             </div>
@@ -881,7 +982,26 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/50">
-                    {callLogs.map((c, i) => (
+                    {callLogs.filter(c => {
+                      if (logSentimentFilter !== 'All') {
+                        const cat = (c.sentiment_category || 'Neutral').toLowerCase();
+                        const stat = (c.call_status || '').toLowerCase();
+                        if (logSentimentFilter === 'Interested' && cat !== 'positive') return false;
+                        if (logSentimentFilter === 'Not Interested' && cat !== 'negative') return false;
+                        if (logSentimentFilter === 'Booked' && !stat.includes('booked')) return false;
+                        if (logSentimentFilter === 'Follow-Up' && !stat.includes('follow')) return false;
+                        if (logSentimentFilter === 'Enquiry' && cat !== 'neutral') return false;
+                      }
+                      if (logDateFilter.from) {
+                        if (new Date(c.created_at) < new Date(logDateFilter.from)) return false;
+                      }
+                      if (logDateFilter.to) {
+                        const toDate = new Date(logDateFilter.to);
+                        toDate.setHours(23,59,59,999);
+                        if (new Date(c.created_at) > toDate) return false;
+                      }
+                      return true;
+                    }).map((c, i) => (
                       <tr key={i} className="hover:bg-white/[0.02] transition-colors">
                         <td className="py-4 px-5 text-xs text-muted-foreground">{new Date(c.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
                         <td className="py-4 px-5 text-xs font-medium">{c.caller_name || 'Unknown'}</td>
@@ -983,38 +1103,87 @@ export default function App() {
           </div>
         )}
 
-        {/* ── KNOWLEDGE BASE ── */}
+                {/* KNOWLEDGE BASE SECTION */}
         {activePage === 'knowledge_base' && (
           <div className="space-y-8 fade-in w-full">
-            <div><h2 className="text-3xl font-extrabold tracking-tight">Knowledge Base & RAG</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">Upload context for your AI Agent so it learns facts, pricing, and FAQs</p></div>
-            <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg">
-              <form onSubmit={async (e) => {
-                e.preventDefault();
-                const btn = e.target.querySelector('button'); btn.innerText = 'Uploading...';
-                try {
-                  const res = await fetch(`${API_BASE}/api/knowledge_base`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ title: e.target.title.value, content: e.target.content.value }) });
-                  const d = await res.json();
-                  if(d.success) {
-                    setKnowledgeBase([d.doc, ...knowledgeBase]);
-                    showToast('Document securely uploaded to database.', 'success');
-                    e.target.reset();
-                  }
-                } catch(e) { }
-                btn.innerText = 'Upload Document';
-              }}>
-                <label className="block text-xs font-bold text-muted-foreground uppercase mb-2">Document Title</label>
-                <input name="title" className="w-full bg-background border border-border p-3 rounded-lg text-sm mb-4 outline-none" placeholder="e.g. Real Estate Pricing 2026" required/>
-                
-                <label className="block text-xs font-bold text-muted-foreground uppercase mb-2">Pasted Knowledge Content (RAG)</label>
-                <textarea name="content" className="w-full bg-background border border-border p-3 rounded-lg text-sm h-[150px] mb-4 outline-none resize-none font-mono text-[12px]" placeholder="Type or paste text directly here to bypass PDF conversion..." required/>
-                
-                <div className="flex justify-end"><button type="submit" className="bg-primary text-white font-semibold rounded-lg px-6 py-2.5 text-sm">Upload Document</button></div>
-              </form>
+            <div><h2 className="text-3xl font-extrabold tracking-tight">Knowledge Base &amp; RAG</h2><p className="text-sm text-muted-foreground mt-1.5 font-medium">Feed documents, websites, and text to your AI Agent for smarter answers</p></div>
+            <div className="flex gap-1 border-b border-border">
+              {[['text','Text / Manual', FileText], ['file','Upload PDF/Word', Download], ['url','Website URL', Link]].map(([tab, label, Icon]) => (
+                <button key={tab} onClick={() => setKbTab(tab)} className={cn('flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-t-lg transition border-b-2 -mb-px',
+                  kbTab === tab ? 'border-primary text-primary bg-primary/5' : 'border-transparent text-muted-foreground hover:text-foreground')}>
+                  <Icon size={13} />{label}
+                </button>
+              ))}
             </div>
-            
+            {kbTab === 'text' && (
+              <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg">
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  const btn = e.target.querySelector('button[type=submit]'); btn.innerText = 'Uploading...';
+                  try {
+                    const res = await fetch(`${API_BASE}/api/knowledge_base`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ title: e.target.kbtitle.value, content: e.target.kbcontent.value }) });
+                    const d = await res.json();
+                    if(d.success) { setKnowledgeBase([d.doc, ...knowledgeBase]); showToast('Document uploaded!', 'success'); e.target.reset(); }
+                  } catch(err) { }
+                  btn.innerText = 'Upload Document';
+                }}>
+                  <label className="block text-xs font-bold text-muted-foreground uppercase mb-2">Document Title</label>
+                  <input name="kbtitle" className="w-full bg-background border border-border p-3 rounded-lg text-sm mb-4 outline-none" placeholder="e.g. Pricing FAQ 2026" required/>
+                  <label className="block text-xs font-bold text-muted-foreground uppercase mb-2">Knowledge Content (RAG)</label>
+                  <textarea name="kbcontent" className="w-full bg-background border border-border p-3 rounded-lg text-sm h-[150px] mb-4 outline-none resize-none font-mono text-[12px]" placeholder="Type or paste text here..." required/>
+                  <div className="flex justify-end"><button type="submit" className="bg-primary text-white font-semibold rounded-lg px-6 py-2.5 text-sm">Upload Document</button></div>
+                </form>
+              </div>
+            )}
+            {kbTab === 'file' && (
+              <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg">
+                <p className="text-xs text-muted-foreground mb-5 leading-relaxed">Upload a PDF or Word file. Requires a <strong>Corpus API Key</strong> in API Credentials.</p>
+                <div className="border-2 border-dashed border-border rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-white/[0.02] transition relative">
+                  <FileText size={32} className="text-muted-foreground mb-3" />
+                  <h4 className="font-semibold text-sm mb-1">Drop PDF or Word file here</h4>
+                  <p className="text-xs text-muted-foreground">.pdf, .doc, .docx supported</p>
+                  <input type="file" accept=".pdf,.doc,.docx" className="absolute inset-0 opacity-0 cursor-pointer" onChange={e => setCorpusFile(e.target.files[0])} />
+                  {corpusFile && <div className="mt-3 bg-primary/10 text-primary text-xs px-3 py-1.5 rounded-full font-semibold">{corpusFile.name}</div>}
+                </div>
+                {corpusFile && (
+                  <div className="mt-4 flex justify-end">
+                    <button onClick={async () => {
+                      const formData = new FormData();
+                      formData.append('file', corpusFile);
+                      formData.append('title', corpusFile.name);
+                      try {
+                        const res = await fetch(`${API_BASE}/api/corpora/upload`, { method: 'POST', body: formData });
+                        const d = await res.json();
+                        if (d.success) { showToast('File uploaded to Ultravox Corpus!', 'success'); setCorpusFile(null); }
+                        else showToast(d.error || 'Upload failed', 'error');
+                      } catch(ex) { showToast('Upload failed', 'error'); }
+                    }} className="bg-primary text-white font-semibold rounded-lg px-6 py-2.5 text-sm">Upload to Agent</button>
+                  </div>
+                )}
+              </div>
+            )}
+            {kbTab === 'url' && (
+              <div className="bg-card border border-border rounded-2xl p-6 shadow-premium-lg">
+                <p className="text-xs text-muted-foreground mb-4 leading-relaxed">Paste a website URL. Ultravox will scrape and index it. Requires a <strong>Corpus API Key</strong> in API Credentials.</p>
+                <label className="block text-xs font-bold text-muted-foreground uppercase mb-2">Website URL</label>
+                <div className="flex gap-3">
+                  <input value={corpusUrl} onChange={e => setCorpusUrl(e.target.value)} placeholder="https://yourwebsite.com/faq"
+                    className="flex-1 bg-background border border-border p-3 rounded-lg text-sm outline-none focus:border-primary transition" />
+                  <button onClick={async () => {
+                    if (!corpusUrl || !corpusUrl.startsWith('http')) { showToast('Enter a valid https:// URL', 'error'); return; }
+                    try {
+                      const res = await fetch(`${API_BASE}/api/corpora/add-url`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ url: corpusUrl }) });
+                      const d = await res.json();
+                      if (d.success) { showToast('URL added!', 'success'); setCorpusUrl(''); }
+                      else showToast(d.error || 'Failed', 'error');
+                    } catch(ex) { showToast('Failed to add URL', 'error'); }
+                  }} className="bg-primary text-white font-semibold rounded-lg px-5 py-2.5 text-sm whitespace-nowrap">Add URL</button>
+                </div>
+              </div>
+            )}
             <div className="space-y-3">
-              <h3 className="font-semibold text-sm px-1">Active Documents ({knowledgeBase.length})</h3>
+              <h3 className="font-semibold text-sm px-1">Active Text Documents ({knowledgeBase.length})</h3>
               {knowledgeBase.map((k, i) => (
                 <div key={i} className="flex justify-between items-center bg-card border border-border p-4 rounded-xl shadow-sm">
                   <div>
@@ -1024,13 +1193,88 @@ export default function App() {
                   <button onClick={async () => {
                      await fetch(`${API_BASE}/api/knowledge_base/${k.id}`, { method: 'DELETE' });
                      setKnowledgeBase(knowledgeBase.filter(x => x.id !== k.id));
-                     showToast('Knowledge destroyed.', 'success');
+                     showToast('Knowledge removed.', 'success');
                   }} className="text-red-500 bg-red-500/10 p-2 rounded-lg hover:bg-red-500/20"><Trash2 size={16} /></button>
                 </div>
               ))}
+              {knowledgeBase.length === 0 && <div className="text-xs text-muted-foreground text-center py-6 bg-card border border-border rounded-xl">No text documents yet. Use the tabs above to add knowledge.</div>}
             </div>
           </div>
         )}
+
+        {/* ── INTEGRATIONS & COMMUNICATION LOGS ── */}
+        {activePage === 'integrations_logs' && (
+          <div className="space-y-8 fade-in w-full">
+            <div className="flex justify-between items-end">
+              <div>
+                <h2 className="text-3xl font-extrabold tracking-tight">Integrations Hub</h2>
+                <p className="text-sm text-muted-foreground mt-1.5 font-medium">Monitoring AI output across SMS, Email, and API integrations</p>
+              </div>
+              <button onClick={() => {
+                const rows = appointments.map(a => [a.name||'', a.phone||'', a.email||'', a.sms_status||'Pending', a.email_status||'Pending', new Date(a.created_at||a.start_time).toLocaleString()].map(v => '"' + v + '"').join(','));
+                const csv = ['Name,Phone,Email,SMS Status,Email Status,Booked At', ...rows].join('\n');
+                const anchor = document.createElement('a');
+                anchor.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+                anchor.download = 'communications_' + new Date().toISOString().slice(0,10) + '.csv';
+                anchor.click();
+              }} className="flex items-center gap-2 bg-primary text-white text-xs font-semibold px-4 py-2 rounded-lg hover:bg-primary/90 transition">
+                <Download size={13} /> Export CSV
+              </button>
+            </div>
+            <div className="grid grid-cols-5 gap-4">
+              {[
+                { label: 'Total Syncs', value: appointments.length, color: 'text-primary', bg: 'from-primary/5 to-purple-500/5' },
+                { label: 'SMS Delivered', value: appointments.filter(a => a.sms_status === 'Sent').length, color: 'text-emerald-400', bg: 'from-emerald-500/5 to-teal-500/5' },
+                { label: 'Email Delivered', value: appointments.filter(a => a.email_status === 'Sent').length, color: 'text-blue-400', bg: 'from-blue-500/5 to-cyan-500/5' },
+                { label: 'Engagement', value: appointments.filter(a => a.status === 'completed' || (a.email_status === 'Sent' && a.sms_status === 'Sent')).length, color: 'text-purple-400', bg: 'from-indigo-500/5 to-fuchsia-500/5' },
+                { label: 'Issues', value: appointments.filter(a => a.sms_status === 'Failed' || a.email_status === 'Failed').length, color: 'text-amber-400', bg: 'from-amber-500/5 to-orange-500/5' },
+              ].map((s, i) => (
+                <div key={i} className={'bg-gradient-to-br ' + s.bg + ' border border-border rounded-2xl p-5'}>
+                  <div className="text-2xs font-bold text-muted-foreground uppercase tracking-ultra mb-2">{s.label}</div>
+                  <div className={'text-3xl font-black ' + s.color}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+            <div className="bg-card border border-border rounded-2xl shadow-premium-lg overflow-hidden">
+              <div className="p-4 border-b border-border flex items-center justify-between">
+                <h3 className="font-semibold text-sm">Notification Log</h3>
+                <button onClick={fetchAll} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition"><RefreshCw size={11} /> Sync</button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-sidebar/30">
+                      <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Name</th>
+                      <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Phone</th>
+                      <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Email Address</th>
+                      <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">SMS</th>
+                      <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Email</th>
+                      <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Booked At</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {appointments.map((a, i) => (
+                      <tr key={i} className="hover:bg-white/[0.02] transition">
+                        <td className="py-3 px-5 font-medium text-sm">{a.name || 'â€”'}</td>
+                        <td className="py-3 px-5 font-mono text-primary text-xs">{a.phone || 'â€”'}</td>
+                        <td className="py-3 px-5 text-xs text-muted-foreground">{a.email || <span className="italic opacity-40">not captured</span>}</td>
+                        <td className="py-3 px-5"><span className={cn('px-2.5 py-1 rounded-full text-[10px] uppercase font-bold',
+                          a.sms_status === 'Sent' ? 'bg-emerald-500/10 text-emerald-400' : a.sms_status === 'Failed' ? 'bg-red-500/10 text-red-400' : 'bg-gray-500/10 text-gray-400')}>
+                          {a.sms_status || 'Pending'}</span></td>
+                        <td className="py-3 px-5"><span className={cn('px-2.5 py-1 rounded-full text-[10px] uppercase font-bold',
+                          a.email_status === 'Sent' ? 'bg-emerald-500/10 text-emerald-400' : a.email_status === 'Failed' ? 'bg-red-500/10 text-red-400' : 'bg-gray-500/10 text-gray-400')}>
+                          {a.email_status || 'Pending'}</span></td>
+                        <td className="py-3 px-5 text-xs text-muted-foreground">{new Date(a.created_at || a.start_time).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
+                      </tr>
+                    ))}
+                    {appointments.length === 0 && <tr><td colSpan="6" className="text-center py-10 text-muted-foreground text-xs">No notifications sent yet.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
 
         {/* ── OUTBOUND CAMPAIGNS ── */}
         {activePage === 'campaigns' && (
@@ -1052,8 +1296,10 @@ export default function App() {
               </div>
               
               <div>
-                <label className="block text-[10px] font-bold text-muted-foreground uppercase mb-1">Primary Campaign Goal</label>
-                <textarea id="campaign_goal" placeholder="What is the objective of this outbound call? e.g. 'Get them to book a viewing for next week.'" className="w-full bg-background border border-border p-3 rounded-lg text-sm outline-none h-20 resize-none"></textarea>
+                <label className="block text-xs font-bold text-muted-foreground uppercase mb-1">Primary Campaign Goal</label>
+                <textarea id="campaign_goal" value={campaignGoal} onChange={e => setCampaignGoal(e.target.value)}
+                  placeholder="What is the objective of this outbound call? e.g. 'Get them to book a viewing for next week.'" 
+                  className="w-full bg-background border border-border p-3 rounded-lg text-sm outline-none h-20 resize-none"></textarea>
               </div>
 
               <div className="grid grid-cols-2 gap-4 pt-2">
@@ -1308,6 +1554,11 @@ export default function App() {
                   <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Outbound Number</label>
                   <input type="text" value={twilioConfig.phone} onChange={(e) => setTwilioConfig({...twilioConfig, phone: e.target.value})} placeholder="+1..." className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
                 </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Transfer Call To (Human Handoff Number)</label>
+                  <input type="text" value={twilioConfig.transfer_number || ''} onChange={(e) => setTwilioConfig({...twilioConfig, transfer_number: e.target.value})} placeholder="+91..." className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" />
+                  <p className="text-[10px] text-muted-foreground mt-2 italic">When the AI transfers a caller to a human, it will dial this number.</p>
+                </div>
                 <div className="pt-4">
                   <button type="submit" disabled={isSavingCreds} className="w-full bg-primary/10 hover:bg-primary/20 text-primary border border-primary/30 font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2">
                     {isSavingCreds ? 'Saving...' : 'Update Twilio Keys'}
@@ -1353,8 +1604,73 @@ export default function App() {
                 </div>
               </form>
             </div>
+
+            {/* --- ULTRAVOX CORPUS API KEY --- */}
+            <div className="bg-card border border-border rounded-2xl p-8 shadow-premium-lg mt-8">
+              <h3 className="text-sm font-bold uppercase tracking-widest mb-1 flex items-center gap-2">
+                <BookOpen size={16} className="text-amber-400" /> Ultravox Corpus API Key
+              </h3>
+              <p className="text-xs text-muted-foreground mb-5">Separate key for uploading PDFs, Word files, and URLs to the Knowledge Base Corpora (used in Knowledge Base page).</p>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const val = e.target.corpus_key.value;
+                const ok = await saveIntegration('ultravox_corpus', val, {});
+                if (ok) showToast('Corpus key saved!', 'success');
+              }} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Corpus API Key</label>
+                  <input name="corpus_key" type="password" defaultValue={getIntegration('ultravox_corpus').api_key || ''}
+                    placeholder="sk_live_..." className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" />
+                </div>
+                <button type="submit" className="w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold py-3.5 rounded-xl transition-all">Save Corpus Key</button>
+              </form>
+            </div>
+
+            {/* --- AWS S3 CONFIG --- */}
+            <div className="bg-card border border-border rounded-2xl p-8 shadow-premium-lg mt-8">
+              <h3 className="text-sm font-bold uppercase tracking-widest mb-1 flex items-center gap-2">
+                <Globe size={16} className="text-blue-400" /> AWS S3 Call Recordings
+              </h3>
+              <p className="text-xs text-muted-foreground mb-5">Store voice recordings securely in your personal AWS S3 bucket.</p>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]'); btn.innerText = 'Saving...';
+                const key = e.target.s3_secret.value;
+                const meta = { 
+                  access_key: e.target.s3_key.value,
+                  region: e.target.s3_region.value,
+                  bucket: e.target.s3_bucket.value 
+                };
+                const ok = await saveIntegration('aws_s3', key, meta);
+                if (ok) showToast('AWS S3 credentials updated!', 'success');
+                btn.innerText = 'Update AWS S3 Bucket';
+              }} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Access Key ID</label>
+                    <input name="s3_key" defaultValue={getIntegration('aws_s3').meta_data?.access_key || ''} placeholder="AKIA..." className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none font-mono" required />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Secret Access Key</label>
+                    <input name="s3_secret" type="password" defaultValue={getIntegration('aws_s3').api_key || ''} placeholder="••••••••" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none font-mono" required />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Region</label>
+                    <input name="s3_region" defaultValue={getIntegration('aws_s3').meta_data?.region || 'us-east-1'} placeholder="us-east-1" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none font-mono" required />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Bucket Name</label>
+                    <input name="s3_bucket" defaultValue={getIntegration('aws_s3').meta_data?.bucket || ''} placeholder="my-call-recordings" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none font-mono" required />
+                  </div>
+                </div>
+                <button type="submit" className="w-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 font-bold py-3.5 rounded-xl transition-all">Update AWS S3 Bucket</button>
+              </form>
+            </div>
           </div>
         )}
+
 
       {viewSummaryModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center fade-in p-4">
@@ -1373,6 +1689,20 @@ export default function App() {
                   {viewSummaryModal.ai_summary || 'No summary was generated or the call failed.'}
                 </div>
               </div>
+
+              {viewSummaryModal.recording_url && (
+                <div className="pt-4 border-t border-border">
+                  <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-2">
+                    <Mic size={14} className="text-primary" /> Call Recording (S3)
+                  </h4>
+                  <div className="bg-background/50 p-4 rounded-xl border border-border flex items-center gap-4">
+                     <audio controls className="flex-1 h-10">
+                        <source src={viewSummaryModal.recording_url} type="audio/mpeg" />
+                     </audio>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-2 italic">Stored securely in {getIntegration('aws_s3').meta_data?.bucket || 'your S3 bucket'}.</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

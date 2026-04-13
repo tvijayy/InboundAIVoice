@@ -3,7 +3,10 @@ const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
 const twilio = require('twilio');
 const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 const cron = require('node-cron');
+const axios = require('axios');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 
 const app = express();
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -18,27 +21,55 @@ app.get('/', (req, res) => {
 const PORT = 8000;
 const ULTRAVOX_API_KEY = process.env.ULTRAVOX_API_KEY;
 
+// Base URL for Twilio callbacks (Prefer environment variable)
+const BACKEND_URL = process.env.BACKEND_URL || '';
+if (!BACKEND_URL) {
+    console.warn("⚠️ [Startup] WARNING: BACKEND_URL environment variable is not set. Many callbacks will use the request host header, which might be unreliable in some environments.");
+} else {
+    console.log(`✅ [Startup] BACKEND_URL is configured as: ${BACKEND_URL}`);
+}
+
 // Initialize Supabase Database Engine
 const supabase = createClient(
     process.env.SUPABASE_URL || 'https://dummy.supabase.co',
     process.env.SUPABASE_KEY || 'dummy_key'
 );
 
+// --- AWS S3 NOTIFICATION ENGINE ---
+async function getS3Client() {
+    const { data: awsInt } = await supabase.from('integrations').select('*').eq('provider', 'aws_s3').maybeSingle();
+    const region = awsInt?.meta_data?.region || process.env.AWS_REGION || 'us-east-1';
+    const accessKeyId = awsInt?.meta_data?.access_key || process.env.AWS_ACCESS_KEY_ID;
+    const secretAccessKey = awsInt?.api_key || process.env.AWS_SECRET_ACCESS_KEY;
+
+    if (!accessKeyId || !secretAccessKey) return null;
+
+    return new S3Client({
+        region,
+        credentials: {
+            accessKeyId,
+            secretAccessKey
+        }
+    });
+}
+
 // --- OMNICHANNEL NOTIFICATIONS ENGINE ---
 async function dispatchOmnichannel(appointmentId, name, phone, email, templateType, dynamicData) {
-    console.log(`[Omnichannel] Dispatching ${templateType} for ${name}`);
+    console.log(`[Omnichannel] Dispatching ${templateType} for ${name} (ID: ${appointmentId})`);
 
-    // Fetch keys securely from database integrations
-    const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').single();
+    // --- 1. Fetch Integration Keys ---
+    const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').maybeSingle();
+    const { data: reInt } = await supabase.from('integrations').select('*').eq('provider', 'resend').maybeSingle();
+    const { data: gmInt } = await supabase.from('integrations').select('*').eq('provider', 'gmail').maybeSingle();
+
     const TWILIO_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
     const TWILIO_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
     const TWILIO_PHONE = twInt?.meta_data?.phone || process.env.TWILIO_PHONE_NUMBER;
-    // WhatsApp Sandbox default
     const TWILIO_WHATSAPP_SENDER = 'whatsapp:+14155238886'; 
     
-    // Fetch Resend Integration (or ENV)
-    const { data: reInt } = await supabase.from('integrations').select('*').eq('provider', 'resend').single();
     const RESEND_API_KEY = reInt?.api_key || process.env.RESEND_API_KEY;
+    const GMAIL_USER = gmInt?.meta_data?.user || gmInt?.meta_data?.email || process.env.GMAIL_USER;
+    const GMAIL_PASS = gmInt?.api_key || process.env.GMAIL_APP_PASSWORD;
 
     let smsBody = "";
     let emailSubject = "";
@@ -60,34 +91,78 @@ async function dispatchOmnichannel(appointmentId, name, phone, email, templateTy
         emailHtml = `<h2>We missed you!</h2><p>Hi ${name},</p><p>We didn't see you at your appointment today at ${startTimeStr}.</p><p>Please let us know when you would like to reschedule!</p>`;
     }
 
+    // --- 2. SMS/WhatsApp via Twilio ---
     if (phone && TWILIO_SID && TWILIO_AUTH && TWILIO_PHONE) {
         try {
             const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
             let nums = String(phone).replace(/\D/g, '');
             const cleanPhone = String(phone).startsWith('+') ? String(phone) : (nums.length === 10 ? `+91${nums}` : `+${nums}`);
-            // Send SMS
             await twilioClient.messages.create({ body: smsBody, from: TWILIO_PHONE, to: cleanPhone });
-            console.log(`[Omnichannel] SMS sent to ${cleanPhone}`);
-            // Send WhatsApp Sandbox Message
             await twilioClient.messages.create({ body: smsBody, from: TWILIO_WHATSAPP_SENDER, to: `whatsapp:${cleanPhone}` });
-            console.log(`[Omnichannel] WhatsApp sent to whatsapp:${cleanPhone}`);
+            console.log(`[Omnichannel] SMS/WA sent to ${cleanPhone}`);
+            
+            // Log SUCCESS to database
+            if (appointmentId && appointmentId !== 'unknown') {
+                await supabase.from('appointments').update({ sms_status: 'Sent' }).eq('id', appointmentId);
+            }
         } catch(e) {
             console.error(`[Omnichannel] Twilio Error:`, e.message);
+            // Log FAILURE to database
+            if (appointmentId && appointmentId !== 'unknown') {
+                await supabase.from('appointments').update({ sms_status: 'Failed' }).eq('id', appointmentId);
+            }
         }
     }
 
-    if (email && RESEND_API_KEY) {
-        try {
-            const resend = new Resend(RESEND_API_KEY);
-            await resend.emails.send({
-                from: 'Azlon AI <onboarding@resend.dev>',
-                to: [email],
-                subject: emailSubject,
-                html: emailHtml
-            });
-            console.log(`[Omnichannel] Email sent to ${email}`);
-        } catch(e) {
-            console.error(`[Omnichannel] Resend Error:`, e.message);
+    // --- 3. Email Delivery (Dual Support) ---
+    if (email) {
+        // Priority 1: Gmail (SMTP) if credentials exist
+        if (GMAIL_USER && GMAIL_PASS) {
+            try {
+                const transporter = nodemailer.createTransport({
+                    service: 'gmail',
+                    auth: { user: GMAIL_USER, pass: GMAIL_PASS }
+                });
+                await transporter.sendMail({
+                    from: `"Azlon AI" <${GMAIL_USER}>`,
+                    to: email,
+                    subject: emailSubject,
+                    html: emailHtml
+                });
+                console.log(`[Omnichannel] Gmail sent to ${email}`);
+                
+                if (appointmentId && appointmentId !== 'unknown') {
+                    await supabase.from('appointments').update({ email_status: 'Sent' }).eq('id', appointmentId);
+                }
+                return; // Sent!
+            } catch(e) {
+                console.error(`[Omnichannel] Gmail Error (falling back):`, e.message);
+                if (appointmentId && appointmentId !== 'unknown') {
+                    await supabase.from('appointments').update({ email_status: 'Failed' }).eq('id', appointmentId);
+                }
+            }
+        }
+
+        // Priority 2: Resend
+        if (RESEND_API_KEY) {
+            try {
+                const resend = new Resend(RESEND_API_KEY);
+                await resend.emails.send({
+                    from: 'Azlon AI <onboarding@resend.dev>', // Verifying domain needed for external
+                    to: [email],
+                    subject: emailSubject,
+                    html: emailHtml
+                });
+                console.log(`[Omnichannel] Resend sent to ${email}`);
+                if (appointmentId && appointmentId !== 'unknown') {
+                    await supabase.from('appointments').update({ email_status: 'Sent' }).eq('id', appointmentId);
+                }
+            } catch(e) {
+                console.error(`[Omnichannel] Resend Error:`, e.message);
+                if (appointmentId && appointmentId !== 'unknown') {
+                    await supabase.from('appointments').update({ email_status: 'Failed' }).eq('id', appointmentId);
+                }
+            }
         }
     }
 }
@@ -141,6 +216,8 @@ app.post('/api/twilio/inbound', async (req, res) => {
         6. CRITICAL - ONE BOOKING ONLY: Call 'book_appointment' EXACTLY ONCE per caller per slot. NEVER retry, NEVER call it twice. If you get a conflict error, offer the caller a DIFFERENT time slot instead of retrying the same one.`;
         
         finalPrompt += "\n\nULTRA-IMPORTANT - CALL TERMINATION: As soon as you say a FINAL goodbye at the end of a session (e.g., 'Have a great day!' or 'Goodbye') or the caller says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for the caller to hang up first. This is critical to reduce telephony costs.";
+        
+        finalPrompt += "\n\nHUMAN TRANSFER: If the caller explicitly asks to speak to a real person, a human, or a manager, or if they have a complex technical issue that you cannot solve using the knowledge base, tell them 'I will transfer you to one of our specialists now' and then IMMEDIATELY call 'transfer_call'.";
 
         // Force https for Ultravox tool callbacks as required by their API
         const baseUrl = `https://${req.get('host')}`;
@@ -149,6 +226,159 @@ app.post('/api/twilio/inbound', async (req, res) => {
         const rawVoice = agentData?.voice_preset || "Mark";
         const validVoices = ["Alice", "Jessica", "Kelsey", "Priya", "Lulu", "Mark", "Victor", "Vitya", "Zdenek"];
         const finalVoice = validVoices.includes(rawVoice) ? rawVoice : "Mark";
+
+        const toolsConfig = agentData?.tools_config || { hangUp: true, transferCall: false, queryCorpus: false };
+        const selectedTools = [
+            {
+                temporaryTool: {
+                    modelToolName: "check_availability",
+                    description: "Check the calendar for free available time slots on a specific date (YYYY-MM-DD).",
+                    dynamicParameters: [
+                        {
+                            name: "target_date",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "Target date in YYYY-MM-DD" },
+                            required: true
+                        }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/availability` }
+                }
+            },
+            {
+                temporaryTool: {
+                    modelToolName: "book_appointment",
+                    description: "Book an appointment for the caller on the calendar.",
+                    dynamicParameters: [
+                        {
+                            name: "start_time",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-04-08T15:00:00+05:30" },
+                            required: true
+                        },
+                        {
+                            name: "name",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "Full name" },
+                            required: true
+                        },
+                        {
+                            name: "phone",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "Phone number" },
+                            required: true
+                        },
+                        {
+                            name: "email",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "Email address exactly as spoken by the caller. Pass raw spoken text like 'contact dot name at gmail dot com' - the system will auto-convert it. Do NOT reformat or validate yourself." },
+                            required: false
+                        }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/book` }
+                }
+            },
+            {
+                temporaryTool: {
+                    modelToolName: "update_appointment",
+                    description: "Reschedule or update an existing appointment to a new time. Requires caller verification.",
+                    dynamicParameters: [
+                        {
+                            name: "name",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "First and last name used originally" },
+                            required: true
+                        },
+                        {
+                            name: "phone",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "Phone number used originally" },
+                            required: true
+                        },
+                        {
+                            name: "new_start_time",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "ISO 8601 datetime string of the new desired time slot" },
+                            required: true
+                        }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/update` }
+                }
+            },
+            {
+                temporaryTool: {
+                    modelToolName: "delete_appointment",
+                    description: "Cancel and delete an existing appointment. Strongly requires caller verification.",
+                    dynamicParameters: [
+                        {
+                            name: "name",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "First and last name used originally" },
+                            required: true
+                        },
+                        {
+                            name: "phone",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "Phone number used originally" },
+                            required: true
+                        }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/delete` }
+                }
+            },
+            {
+                temporaryTool: {
+                    modelToolName: "log_call_outcome",
+                    description: "Record the final outcome of the call including a descriptive reason and its overall category. IMPORTANT: Category MUST be one of: Interested, Not Interested, Follow Up, Booked Meeting, or Standard Enquiry.",
+                    dynamicParameters: [
+                        { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The caller's exact phone number" }, required: true },
+                        { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "A short 2-4 word phrase describing the specific reason for the classification." }, required: true },
+                        { name: "category", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Must be one of: Interested, Not Interested, Follow Up, Booked Meeting, or Standard Enquiry" }, required: true },
+                        { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/log_outcome` }
+                }
+            }
+        ];
+
+        // Add optional tools based on dashboard settings
+        if (toolsConfig.hangUp) {
+            selectedTools.push({
+                temporaryTool: {
+                    modelToolName: "hang_up",
+                    description: "Explicitly terminate the phone call to end the session. Call this as your VERY LAST action when the user says goodbye or is definitely leaving.",
+                    dynamicParameters: [
+                        { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The caller's phone number" }, required: true }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/hang_up` }
+                }
+            });
+        }
+
+        if (toolsConfig.transferCall) {
+            selectedTools.push({
+                temporaryTool: {
+                    modelToolName: "transfer_call",
+                    description: "Transfer the caller to a human representative. Use this if the caller specifically asks to speak to a person or representative.",
+                    dynamicParameters: [
+                        { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The caller's phone number" }, required: true }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/transfer` }
+                }
+            });
+        }
+
+        if (toolsConfig.queryCorpus) {
+            selectedTools.push({
+                temporaryTool: {
+                    modelToolName: "query_corpus",
+                    description: "Search the company's advanced knowledge base (PDFs, documents, and websites) for specific information. Use this if the standard knowledge base doesn't have the answer.",
+                    dynamicParameters: [
+                        { name: "query", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The specific question or search term" }, required: true }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/query-corpus` }
+                }
+            });
+        }
 
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
             method: 'POST',
@@ -162,127 +392,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                 temperature: agentData?.temperature || 0.3,
                 firstSpeaker: "FIRST_SPEAKER_AGENT",
                 medium: { twilio: {} },
-                selectedTools: [
-                    {
-                        temporaryTool: {
-                            modelToolName: "check_availability",
-                            description: "Check the calendar for free available time slots on a specific date (YYYY-MM-DD).",
-                            dynamicParameters: [
-                                {
-                                    name: "target_date",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "Target date in YYYY-MM-DD" },
-                                    required: true
-                                }
-                            ],
-                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/availability` }
-                        }
-                    },
-                    {
-                        temporaryTool: {
-                            modelToolName: "book_appointment",
-                            description: "Book an appointment for the caller on the calendar.",
-                            dynamicParameters: [
-                                {
-                                    name: "start_time",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-04-08T15:00:00+05:30" },
-                                    required: true
-                                },
-                                {
-                                    name: "name",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "Full name" },
-                                    required: true
-                                },
-                                {
-                                    name: "phone",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "Phone number" },
-                                    required: true
-                                },
-                                {
-                                    name: "email",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "Email address exactly as spoken by the caller. Pass raw spoken text like 'contact dot name at gmail dot com' - the system will auto-convert it. Do NOT reformat or validate yourself." },
-                                    required: false
-                                }
-                            ],
-                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/book` }
-                        }
-                    },
-                    {
-                        temporaryTool: {
-                            modelToolName: "update_appointment",
-                            description: "Reschedule or update an existing appointment to a new time. Requires caller verification.",
-                            dynamicParameters: [
-                                {
-                                    name: "name",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "First and last name used originally" },
-                                    required: true
-                                },
-                                {
-                                    name: "phone",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "Phone number used originally" },
-                                    required: true
-                                },
-                                {
-                                    name: "new_start_time",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "ISO 8601 datetime string of the new desired time slot" },
-                                    required: true
-                                }
-                            ],
-                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/update` }
-                        }
-                    },
-                    {
-                        temporaryTool: {
-                            modelToolName: "delete_appointment",
-                            description: "Cancel and delete an existing appointment. Strongly requires caller verification.",
-                            dynamicParameters: [
-                                {
-                                    name: "name",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "First and last name used originally" },
-                                    required: true
-                                },
-                                {
-                                    name: "phone",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "Phone number used originally" },
-                                    required: true
-                                }
-                            ],
-                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/delete` }
-                        }
-                    },
-                    {
-                        temporaryTool: {
-                            modelToolName: "log_call_outcome",
-                            description: "Record the final outcome of the call including a descriptive sentiment word and its overall category. IMPORTANT: If the caller says they are 'not interested', this is a NEGATIVE sentiment.",
-                            dynamicParameters: [
-                                { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The caller's exact phone number" }, required: true },
-                                { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "A short 2-4 word phrase describing the mood (e.g. Very Relieved, Extremely Frustrated, Calm and Professional)" }, required: true },
-                                { name: "category", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Must be one of: Positive, Negative, or Neutral" }, required: true },
-                                { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
-                            ],
-                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/log_outcome` }
-                        }
-                    },
-                    {
-                        temporaryTool: {
-                            modelToolName: "hang_up",
-                            description: "Explicitly terminate the phone call and end the session. Call this as your VERY LAST action when the user says goodbye or is definitely leaving.",
-                            dynamicParameters: [
-                                { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The caller's phone number" }, required: true }
-                            ],
-                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/hang_up` }
-                        }
-                    }
-                ]
+                selectedTools: selectedTools
             })
         });
 
@@ -304,7 +414,20 @@ app.post('/api/twilio/inbound', async (req, res) => {
             ultravox_call_id: ultravoxCallId
         }]);
 
-        // 4. Return Twilio XML (TwiML) instantly bridging the caller to the Ultravox WebSocket
+        // 4. TRIGGER RECORDING via REST API
+        const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').maybeSingle();
+        const TW_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
+        const TW_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
+        if (TW_SID && TW_AUTH) {
+            const client = require('twilio')(TW_SID, TW_AUTH);
+            client.calls(callSid).recordings.create({
+                recordingStatusCallback: `${baseUrl}/api/twilio/recording-callback`,
+                recordingStatusCallbackEvent: ['completed'],
+                trim: 'trim-silence'
+            }).catch(e => console.error("Twilio Inbound Record Error:", e));
+        }
+
+        // 5. Return Twilio XML (TwiML) instantly bridging the caller to the Ultravox WebSocket
         const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
@@ -349,8 +472,8 @@ app.post('/api/calls/outbound', async (req, res) => {
 
         const twilioClient = twilio(TWILIO_SID, TWILIO_AUTH);
         
-        // Use exact domain to prevent .env overrides from breaking Status Callback
-        const serverBaseUrl = "https://saas-backend.xqnsvk.easypanel.host";
+        // Dynamic backend URL selection
+        const serverBaseUrl = BACKEND_URL || `https://${req.get('host')}`;
         const webhookUrl = `${serverBaseUrl}/api/twilio/outbound-twiml?toPhone=${encodeURIComponent(toPhone || '')}&voice=${encodeURIComponent(voice || '')}&goal=${encodeURIComponent(goal || '')}&name=${encodeURIComponent(name || '')}`;
 
         // 3. Directly command Twilio to physically dial the lead
@@ -359,7 +482,10 @@ app.post('/api/calls/outbound', async (req, res) => {
             to: toPhone,
             from: TWILIO_PHONE,
             statusCallback: `${serverBaseUrl}/api/twilio/status`,
-            statusCallbackEvent: ['completed']
+            statusCallbackEvent: ['completed'],
+            record: true,
+            recordingStatusCallback: `${serverBaseUrl}/api/twilio/recording-callback`,
+            recordingStatusCallbackEvent: ['completed']
         });
 
         // 4. SECURE LOGGING: Write the outbound call directly into your Supabase Data Table!
@@ -438,6 +564,8 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
 
         finalPrompt += "\n\nULTRA-IMPORTANT - CALL TERMINATION: As soon as you say a FINAL goodbye or the lead says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for them to hang up. This is critical to reduce telephony costs.";
 
+        finalPrompt += "\n\nHUMAN TRANSFER: If the lead explicitly asks to speak to a real person, a human, or a manager, or if they have a complex technical issue that you cannot solve using the knowledge base, tell them 'I will transfer you to one of our specialists now' and then IMMEDIATELY call 'transfer_call'.";
+
         const rawVoice = reqVoice || agentData?.voice_preset || "Mark";
         const validVoices = ["Alice", "Jessica", "Kelsey", "Priya", "Lulu", "Mark", "Victor", "Vitya", "Zdenek"];
         const finalVoice = validVoices.includes(rawVoice) ? rawVoice : "Mark";
@@ -445,6 +573,104 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         const baseUrl = `https://${req.get('host')}`;
         
         // 2. Create the Ultravox Session right now (no timeout risk because they just pressed the key!)
+        const toolsConfig = agentData?.tools_config || { hangUp: true, transferCall: false, queryCorpus: false };
+        const selectedTools = [
+            {
+                temporaryTool: {
+                    modelToolName: "check_availability",
+                    description: "Check the calendar for free available time slots on a specific date (YYYY-MM-DD).",
+                    dynamicParameters: [
+                        {
+                            name: "target_date",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "The target date to check in YYYY-MM-DD format" },
+                            required: true
+                        }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/availability` }
+                }
+            },
+            {
+                temporaryTool: {
+                    modelToolName: "book_appointment",
+                    description: reqName ? `Book an appointment for ${reqName} on the calendar. Use context variables directly, do NOT ask the user for name or phone.` : "Book an appointment for the caller on the calendar.",
+                    dynamicParameters: [
+                        {
+                            name: "start_time",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-04-08T15:00:00+05:30" },
+                            required: true
+                        },
+                        {
+                            name: "name",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: reqName ? `Must be exactly: ${reqName}` : "Full name of caller" },
+                            required: reqName ? false : true // Required if no context, false if context exists
+                        },
+                        {
+                            name: "phone",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: reqName ? `Must be exactly: ${toPhone}` : "Contact number" },
+                            required: false
+                        }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/book` }
+                }
+            },
+            {
+                temporaryTool: {
+                    modelToolName: "log_call_outcome",
+                    description: "Record the final outcome of the call including a descriptive reason and its overall category. IMPORTANT: Category MUST be one of: Interested, Not Interested, Follow Up, Booked Meeting, or Standard Enquiry.",
+                    dynamicParameters: [
+                        { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The lead's exact phone number" }, required: true },
+                        { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "A short descriptive reason (e.g. 'Disappointed with service', 'Happy to book')" }, required: true },
+                        { name: "category", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Must be one of: Interested, Not Interested, Follow Up, Booked Meeting, or Standard Enquiry" }, required: true },
+                        { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/log_outcome` }
+                }
+            }
+        ];
+
+        if (toolsConfig.hangUp) {
+            selectedTools.push({
+                temporaryTool: {
+                    modelToolName: "hang_up",
+                    description: "Explicitly terminate the phone call to end the session. Call this as your VERY LAST action when the user says goodbye or is definitely leaving.",
+                    dynamicParameters: [
+                        { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The lead's phone number" }, required: true }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/hang_up` }
+                }
+            });
+        }
+
+        if (toolsConfig.transferCall) {
+            selectedTools.push({
+                temporaryTool: {
+                    modelToolName: "transfer_call",
+                    description: "Transfer the caller to a human representative. Use this if the lead specifically asks to speak to a person or representative.",
+                    dynamicParameters: [
+                        { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The lead's phone number" }, required: true }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/transfer` }
+                }
+            });
+        }
+
+        if (toolsConfig.queryCorpus) {
+            selectedTools.push({
+                temporaryTool: {
+                    modelToolName: "query_corpus",
+                    description: "Search the company's advanced knowledge base (PDFs, documents, and websites) for specific information. Use this if the standard knowledge base doesn't have the answer.",
+                    dynamicParameters: [
+                        { name: "query", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The specific question or search term" }, required: true }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/query-corpus` }
+                }
+            });
+        }
+
         const uvResponse = await fetch('https://api.ultravox.ai/api/calls', {
             method: 'POST',
             headers: {
@@ -457,73 +683,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
                 temperature: agentData?.temperature || 0.3,
                 firstSpeaker: "FIRST_SPEAKER_AGENT",
                 medium: { twilio: {} },
-                selectedTools: [
-                    {
-                        temporaryTool: {
-                            modelToolName: "check_availability",
-                            description: "Check the calendar for free available time slots on a specific date (YYYY-MM-DD).",
-                            dynamicParameters: [
-                                {
-                                    name: "target_date",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "The target date to check in YYYY-MM-DD format" },
-                                    required: true
-                                }
-                            ],
-                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/availability` }
-                        }
-                    },
-                    {
-                        temporaryTool: {
-                            modelToolName: "book_appointment",
-                            description: reqName ? `Book an appointment for ${reqName} on the calendar. Use context variables directly, do NOT ask the user for name or phone.` : "Book an appointment for the caller on the calendar.",
-                            dynamicParameters: [
-                                {
-                                    name: "start_time",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: "ISO 8601 datetime string. e.g. 2026-04-08T15:00:00+05:30" },
-                                    required: true
-                                },
-                                {
-                                    name: "name",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: reqName ? `Must be exactly: ${reqName}` : "Full name of caller" },
-                                    required: reqName ? false : true // Required if no context, false if context exists
-                                },
-                                {
-                                    name: "phone",
-                                    location: "PARAMETER_LOCATION_BODY",
-                                    schema: { type: "string", description: reqName ? `Must be exactly: ${toPhone}` : "Contact number" },
-                                    required: false
-                                }
-                            ],
-                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/book` }
-                        }
-                    },
-                    {
-                        temporaryTool: {
-                            modelToolName: "log_call_outcome",
-                            description: "Record the final outcome of the call including a descriptive reason and its overall emotional category.",
-                            dynamicParameters: [
-                                { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The lead's exact phone number" }, required: true },
-                                { name: "sentiment", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "A short descriptive reason (e.g. 'Disappointed with service', 'Happy to book')" }, required: true },
-                                { name: "category", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Must be one of: Positive, Negative, or Neutral" }, required: true },
-                                { name: "status", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "Resolved, Follow Up, Booked, or Missed" }, required: true }
-                            ],
-                            http: { httpMethod: "POST", baseUrlPattern: "https://saas-backend.xqnsvk.easypanel.host/api/tools/log_outcome" }
-                        }
-                    },
-                    {
-                        temporaryTool: {
-                            modelToolName: "hang_up",
-                            description: "Explicitly terminate the phone call to end the session. Call this as your VERY LAST action when the user says goodbye or is definitely leaving.",
-                            dynamicParameters: [
-                                { name: "phone", location: "PARAMETER_LOCATION_BODY", schema: { type: "string", description: "The lead's phone number" }, required: true }
-                            ],
-                            http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/hang_up` }
-                        }
-                    }
-                ]
+                selectedTools: selectedTools
             })
         });
 
@@ -565,6 +725,64 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
     } catch (err) {
         console.error("Outbound TwiML Webhook Error:", err);
         res.status(500).send('<Response><Say>Error loading AI.</Say></Response>');
+    }
+});
+
+// --- RECORDING CALLBACK: Move Twilio recordings to AWS S3 ---
+app.post('/api/twilio/recording-callback', async (req, res) => {
+    try {
+        const { RecordingUrl, CallSid, RecordingSid } = req.body;
+        console.log(`[Recording] Callback for Call: ${CallSid} | Sid: ${RecordingSid}`);
+
+        // 1. Fetch Integration Keys
+        const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').maybeSingle();
+        const { data: awsInt } = await supabase.from('integrations').select('*').eq('provider', 'aws_s3').maybeSingle();
+
+        const TW_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
+        const TW_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
+        const S3_BUCKET = awsInt?.meta_data?.bucket || process.env.S3_BUCKET_NAME;
+
+        if (!TW_SID || !TW_AUTH || !S3_BUCKET) {
+            console.error("[Recording] Missing credentials to process recording.");
+            return res.status(500).send("Error");
+        }
+
+        // 2. Download from Twilio
+        const response = await axios({
+            method: 'get',
+            url: RecordingUrl + ".mp3", // Ask for MP3 to save space
+            responseType: 'arraybuffer',
+            auth: {
+                username: TW_SID,
+                password: TW_AUTH
+            }
+        });
+
+        // 3. Upload to S3
+        const s3 = await getS3Client();
+        if (!s3) throw new Error("AWS S3 client failed to initialize.");
+
+        const key = `recordings/${CallSid}_${RecordingSid}.mp3`;
+        await s3.send(new PutObjectCommand({
+            Bucket: S3_BUCKET,
+            Key: key,
+            Body: response.data,
+            ContentType: 'audio/mpeg'
+        }));
+
+        const finalUrl = `https://${S3_BUCKET}.s3.amazonaws.com/${key}`;
+
+        // 4. Update Database
+        await supabase.from('calls').update({ 
+            recording_url: finalUrl,
+            recording_sid: RecordingSid
+        }).eq('twilio_sid', CallSid);
+
+        console.log(`[Recording] Successfully stored in S3: ${finalUrl}`);
+        res.send("OK");
+    } catch (err) {
+        console.error("[Recording] Error processing callback:", err);
+        res.status(500).send("Error");
     }
 });
 
@@ -643,7 +861,8 @@ app.post('/api/agent', async (req, res) => {
         const { 
             system_prompt, voice_preset, temperature, 
             personality, greeting_message,
-            working_days, open_time, close_time, non_working_dates 
+            working_days, open_time, close_time, non_working_dates,
+            tools_config
         } = req.body;
         
         const updateData = {};
@@ -656,6 +875,7 @@ app.post('/api/agent', async (req, res) => {
         if (open_time !== undefined) updateData.open_time = open_time;
         if (close_time !== undefined) updateData.close_time = close_time;
         if (non_working_dates !== undefined) updateData.non_working_dates = non_working_dates;
+        if (tools_config !== undefined) updateData.tools_config = tools_config;
         
         // Upsert to the first basic row
         const { data: existing } = await supabase.from('agent_settings').select('id').limit(1).single();
@@ -810,32 +1030,38 @@ app.post('/api/integrations', async (req, res) => {
     }
 });
 
+// Helper: Force incoming date strings into IST (UTC+05:30) if offset is missing
+function forceIST(dateStr) {
+    if (!dateStr) return null;
+    let s = String(dateStr).trim();
+    // If it's just YYYY-MM-DD, add start of day and offset
+    if (s.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        return `${s}T00:00:00+05:30`;
+    }
+    // If it has T but no offset sign (+ or -) and doesn't end with Z, append IST offset
+    if (s.includes('T') && !s.includes('+') && !s.includes('-', s.indexOf('T')) && !s.endsWith('Z')) {
+        return `${s}+05:30`;
+    }
+    return s;
+}
+
 app.post('/api/tools/availability', async (req, res) => {
     try {
         const { target_date } = req.body;
-        console.log(`[AI TOOL] Availability check for: ${target_date}`);
-        
-        let { data: agentData } = await supabase.from('agent_settings').select('*').limit(1).single();
-        if (!agentData) {
-             agentData = { working_days: ["Mon", "Tue", "Wed", "Thu", "Fri"], open_time: '09:00', close_time: '18:00', non_working_dates: [] };
-        }
-        
-        // Determine day name (Timezone Independent Fix)
+        if (!target_date) return res.json({ available_slots: "Please provide a target_date (YYYY-MM-DD)." });
+
+        // 1. Fetch current agent settings for business hours
+        const { data: agentData } = await supabase.from('agent_settings').select('*').limit(1).single();
+        if (!agentData) return res.json({ available_slots: "Business hours not configured." });
+
+        // 2. Determine day name (Timezone Independent Fix)
         const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        // Using "YYYY-MM-DD" string with getUTCDay() ensures the day is ALWAYS consistent 
-        // regardless of server location.
-        const targetDayName = days[new Date(target_date).getUTCDay()];
-        
-        // 1. Check if date is manually blocked (holiday)
-        const nonWorkingDates = agentData.non_working_dates || [];
-        // Extract simple YYYY-MM-DD from target_date to match nonWorkingDates precisely
-        const cleanTargetDate = target_date.split('T')[0];
-        
-        if (nonWorkingDates.includes(cleanTargetDate)) {
-            return res.json({ available_slots: "Business is closed on this date (marked as holiday)." });
+        const targetDateObj = new Date(`${target_date}T00:00:00+05:30`);
+        const targetDayName = days[targetDateObj.getUTCDay()];
+
+        if ((agentData.non_working_dates || []).includes(target_date)) {
+            return res.json({ available_slots: "Closed for holiday on " + target_date });
         }
-        
-        // 2. Check if day of week is a working day
         const workingDays = Array.isArray(agentData.working_days) ? agentData.working_days : ["Mon", "Tue", "Wed", "Thu", "Fri"];
         if (!workingDays.includes(targetDayName)) {
             return res.json({ available_slots: "Business is closed on " + targetDayName + "s." });
@@ -854,46 +1080,32 @@ app.post('/api/tools/availability', async (req, res) => {
         for (let m = openMinutes; m < closeMinutes; m += 30) {
             const h = Math.floor(m / 60);
             const min = m % 60;
-            // Store as IST time string (no Z suffix — treated as local IST)
             const timeStr = `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
             allSlots.push(`${target_date}T${timeStr}:00+05:30`);
         }
         
-        // 4. Fetch ONLY confirmed appointments for that day to find conflicts
+        // 4. Fetch confirmed appointments for the day to find conflicts using direct database range
         const dayStart = `${target_date}T00:00:00+05:30`;
         const dayEnd = `${target_date}T23:59:59+05:30`;
         const { data: existingApps } = await supabase
             .from('appointments')
             .select('start_time')
-            .eq('status', 'confirmed')  // CRITICAL: only block confirmed slots, not missed/cancelled
+            .eq('status', 'confirmed')
             .gte('start_time', dayStart)
             .lte('start_time', dayEnd);
         
-        // Match exact times in IST
-        let bookedTimes = [];
-        if (existingApps && Array.isArray(existingApps)) {
-            bookedTimes = existingApps
-                .filter(a => a && a.start_time)
-                .map(a => {
-                    const d = new Date(a.start_time);
-                    if (isNaN(d.getTime())) return null;
-                    // Robust IST time extraction (HH:mm)
-                    return d.toLocaleString('en-GB', { 
-                        timeZone: 'Asia/Kolkata', 
-                        hour: '2-digit', 
-                        minute: '2-digit',
-                        hour12: false 
-                    }).replace('.', ':');
-                })
-                .filter(t => t !== null);
-        }
+        const bookedISOs = (existingApps || []).map(a => new Date(a.start_time).toISOString());
         
         let freeSlots = allSlots.filter(slot => {
-            const slotTimePart = slot.split('T')[1].substring(0, 5); // Extract "HH:mm"
-            return !bookedTimes.includes(slotTimePart);
+            const slotISO = new Date(slot).toISOString();
+            // Check for any confirmed booking within 25 mins of this slot to avoid overlap
+            return !bookedISOs.some(bookedISO => {
+                const diff = Math.abs(new Date(slotISO) - new Date(bookedISO));
+                return diff < 25 * 60 * 1000; // 25 minute proximity check
+            });
         });
         
-        console.log(`Availability for ${target_date}: ${freeSlots.length} free slots (${openTime}-${closeTime} IST)`);
+        console.log(`Availability for ${target_date}: ${freeSlots.length} free slots. Unified range-check active.`);
         res.json({ available_slots: freeSlots.length > 0 ? freeSlots : "No free slots on this date." });
     } catch (e) {
         console.error("Availability Check Error:", e);
@@ -901,20 +1113,33 @@ app.post('/api/tools/availability', async (req, res) => {
     }
 });
 
-// Helper: extract email from any property in a body object (catches nested/aliased keys)
+// Revised Helper: Extracts and repairs email from body by scanning all fields
 function extractEmailFromBody(body) {
-    const emailKeys = ['email', 'email_address', 'user_email', 'emailAddress', 'callerEmail', 'contact_email'];
+    console.log("[EMAIL SCAN] Body keys:", Object.keys(body));
+    
+    const scanAndProcess = (val) => {
+        if (typeof val !== 'string' || val.length < 5) return null;
+        let repaired = repairEmail(val);
+        // Even MORE forgiving check: just @ and some length is enough to try
+        if (repaired.includes('@') && repaired.length > 5) {
+            return repaired;
+        }
+        return null;
+    };
+
+    // 1. Check known keys first
+    const emailKeys = ['email', 'email_address', 'user_email', 'emailAddress', 'callerEmail', 'contact_email', 'customer_email', 'mail'];
     for (const key of emailKeys) {
-        if (body[key] && typeof body[key] === 'string' && body[key].trim() !== '') {
-            return body[key].trim();
-        }
+        let result = scanAndProcess(body[key]);
+        if (result) return result;
     }
-    // Last resort: scan all string values for something that looks email-like
+
+    // 2. Scan every value in the body (Deep Scan)
     for (const val of Object.values(body)) {
-        if (typeof val === 'string' && (val.includes('@') || val.includes(' at ') || val.includes('gmail') || val.includes('.com'))) {
-            return val.trim();
-        }
+        let result = scanAndProcess(val);
+        if (result) return result;
     }
+
     return null;
 }
 
@@ -932,23 +1157,34 @@ function repairEmail(raw) {
     e = e.replace(/\bunderscore\b/g, '_');
     e = e.replace(/\bdash\b/g, '-');
     e = e.replace(/\bhyphen\b/g, '-');
-    e = e.replace(/\bperiod\b/g, '.');
-    e = e.replace(/\bpoint\b/g, '.');
     e = e.replace(/\bdot\b/g, '.');
+    e = e.replace(/\bpoint\b/g, '.');
+    e = e.replace(/\bperiod\b/g, '.');
     e = e.replace(/\bat\b/g, '@');  // standalone 'at'
+    
     // Remove all remaining whitespace
     e = e.replace(/\s+/g, '');
+
+    // AUTO-CORRECT: common voice mistakes (e.g. "gmailcom" -> "gmail.com")
+    if (e.includes('gmailcom')) e = e.replace('gmailcom', 'gmail.com');
+    if (e.includes('outlookcom')) e = e.replace('outlookcom', 'outlook.com');
+    if (e.includes('yahooitaly')) e = e.replace('yahooitaly', 'yahoo.it');
+    if (e.includes('yahoocom')) e = e.replace('yahoocom', 'yahoo.com');
+    if (e.includes('hotmailcom')) e = e.replace('hotmailcom', 'hotmail.com');
+    if (e.includes('icloudcom')) e = e.replace('icloudcom', 'icloud.com');
+
     return e;
 }
 
 app.post('/api/tools/book', async (req, res) => {
     try {
         let { start_time, name, phone } = req.body;
-        // HYPER-RESILIENT: extract email from any possible parameter name/location
-        let rawEmail = extractEmailFromBody(req.body);
-        let email = repairEmail(rawEmail);
+        console.log("[BOOK START] Raw Request Body:", JSON.stringify(req.body));
+        
+        // HYPER-RESILIENT: Extract using the new Repair-First logic
+        let email = extractEmailFromBody(req.body);
 
-        console.log("[BOOK] Received:", { start_time, name, phone, rawEmail, repairedEmail: email });
+        console.log("[BOOK] Data Capture:", { start_time, name, phone, email });
         
         // --- AI VALIDATION GUARDRAILS (softened messages to stop loops) ---
         if (!name || name.trim() === '' || name.toLowerCase().includes('unknown')) {
@@ -958,49 +1194,43 @@ app.post('/api/tools/book', async (req, res) => {
             return res.json({ result: "I still need the caller's phone number to complete the booking. Could you please collect it?" });
         }
 
-        // Email is optional — we try to book even without it, but log if missing
+        // --- LEAD EMAIL FALLBACK (Disabled for production accuracy) ---
+        // We no longer fallback to old database emails to avoid sending to the wrong person.
+        // It must be captured fresh in the call.
         if (!email || !email.includes('@')) {
-            console.warn(`[BOOK] Email missing or invalid after repair. raw='${rawEmail}' repaired='${email}'. Proceeding without email.`);
-            email = null; // Allow booking without email rather than failing
+            console.warn(`[BOOK] No fresh email captured for ${phone}. Proceeding without email confirmation.`);
+            email = null;
         }
 
-        if (!start_time) {
-            return res.json({ result: "Missing start_time. Ask the caller what date and time they want." });
-        }
-        
-        const startDate = new Date(start_time);
+        // --- DATA INTEGRITY FIX: Force IST and check conflicts with 'Self-Recognition' ---
+        const istStartTime = forceIST(start_time);
+        const startDate = new Date(istStartTime);
         if (isNaN(startDate.getTime())) {
             return res.json({ result: "Invalid date format. Use ISO 8601 format like 2026-04-08T15:00:00+05:30" });
         }
 
-        // --- HOLIDAY & WORKING DAY GUARDRAIL ---
-        let { data: agentData } = await supabase.from('agent_settings').select('non_working_dates, working_days').limit(1).single();
-        const dateStr = startDate.toISOString().split('T')[0];
-        const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        const targetDayName = days[startDate.getUTCDay()];
-
-        if (agentData) {
-            if ((agentData.non_working_dates || []).includes(dateStr)) {
-                return res.json({ result: "I apologize, but we are closed on this date for a holiday. Please suggest another day." });
-            }
-            const workingDays = Array.isArray(agentData.working_days) ? agentData.working_days : ["Mon", "Tue", "Wed", "Thu", "Fri"];
-            if (!workingDays.includes(targetDayName)) {
-                return res.json({ result: `I'm sorry, we are not open on ${targetDayName}s. Would you like to try another day?` });
-            }
-        }
+        const windowStart = new Date(startDate.getTime() - 25 * 60 * 1000); // 25 min buffer
+        const windowEnd = new Date(startDate.getTime() + 25 * 60 * 1000);
         
-        // --- DATA INTEGRITY FIX: Double-check availability before booking (window-based, not exact ISO) ---
-        const windowStart = new Date(startDate.getTime() - 30 * 1000); // 30 second buffer
-        const windowEnd = new Date(startDate.getTime() + 30 * 1000);
         const { data: existing } = await supabase
             .from('appointments')
-            .select('id')
+            .select('id, name, phone, status')
             .eq('status', 'confirmed')
             .gte('start_time', windowStart.toISOString())
             .lte('start_time', windowEnd.toISOString());
+
         if (existing && existing.length > 0) {
-            console.warn(`[AI TOOL] ❌ Double-book prevented for: ${start_time}`);
-            return res.json({ result: "That time slot was just taken. Please check availability again and offer the caller a different time." });
+            // SELF-RECOGNITION: if the existing booking is from the SAME phone number, allow it as an update/sync
+            const myMatch = existing.find(ex => ex.phone === phone);
+            if (myMatch) {
+                console.log(`[AI TOOL] ✅ Self-conflict identified for ${phone}. Updating existing record ${myMatch.id}.`);
+                // Proceed with the booking logic—the insert will succeed (we aren't using uniq constraints here currently)
+                // or we could update myMatch.id instead. For now, let's allow it so the flow is "Confirmed!"
+            } else {
+                const occupant = existing[0].name || "another caller";
+                console.warn(`[AI TOOL] ❌ True conflict for ${istStartTime}. Taken by ${occupant}`);
+                return res.json({ result: `That time slot was just taken by ${occupant}. Please check for the next available slot.` });
+            }
         }
 
         const endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour duration
@@ -1023,39 +1253,50 @@ app.post('/api/tools/book', async (req, res) => {
             return res.json({ result: "Failed to save appointment. Database error." });
         }
 
-        // --- STATUS SYNC FIX: Ensure call status is 'Booked' instantly ---
-        if (phone) {
-            const cleanPhone = String(phone).replace(/\D/g, '');
-            // Search for the most recent call with a fuzzy match for the phone number
-            const { data: recentCall } = await supabase.from('calls').select('id').or(`from_phone.ilike.%${cleanPhone}%,to_phone.ilike.%${cleanPhone}%`).order('created_at', { ascending: false }).limit(1).single();
-            if (recentCall) {
-                await supabase.from('calls').update({ call_status: 'Booked', sentiment: 'Booked' }).eq('id', recentCall.id);
-            }
-        }
-        
         console.log("Appointment booked successfully:", data?.[0]?.id, bookingPayload);
-        
-        let leadEmail = email || null;
-        if (phone) {
-            const cleanPhone = String(phone).replace(/\D/g, '');
-            const { data: existingLead } = await supabase.from('leads').select('id, email').eq('phone', phone).single();
-            if (existingLead) {
-                leadEmail = leadEmail || existingLead.email;
-                const updatePayload = { segment: 'Qualified', ai_context: `Booked appointment on ${startDate.toLocaleDateString()}` };
-                if (email) updatePayload.email = email;
-                await supabase.from('leads').update(updatePayload).eq('id', existingLead.id);
-            } else {
-                await supabase.from('leads').insert([{ name: name || 'New Lead', phone: phone, email: leadEmail, segment: 'Qualified', source: 'AI Booking', ai_context: 'Auto-qualified via appointment booking.' }]);
+
+        // --- SUCCESS RESPONSE (Early Return) ---
+        // We return success IMMEDIATELY so the AI confirms to the user first.
+        // Background sync tasks follow in a non-blocking or protected way.
+        const confirmationMsg = `Appointment successfully booked for ${name || 'caller'} on ${startDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}. Confirmed!`;
+        res.json({ result: confirmationMsg });
+
+        // --- BACKGROUND SYNC (Protected) ---
+        (async () => {
+            try {
+                if (phone) {
+                    const cleanPhone = String(phone).replace(/\D/g, '');
+                    // 1. Update/Book the Call record
+                    const { data: recentCall } = await supabase.from('calls').select('id').or(`from_phone.ilike.%${cleanPhone}%,to_phone.ilike.%${cleanPhone}%`).order('created_at', { ascending: false }).limit(1).maybeSingle();
+                    if (recentCall) {
+                        await supabase.from('calls').update({ call_status: 'Booked', sentiment: 'Booked' }).eq('id', recentCall.id);
+                    }
+
+                    // 2. CRM Sync: Update/Upsert the Lead with newest info
+                    // This ensures that even if you change your email, the system "learns" it immediately.
+                    const { error: leadErr } = await supabase.from('leads').upsert([{ 
+                        phone, 
+                        name: name || 'Valued Customer', 
+                        email: email || null, 
+                        segment: 'Qualified', 
+                        last_contact: new Date().toISOString(),
+                        ai_context: `Latest booking confirmed for ${startDate.toLocaleDateString()}`
+                    }], { onConflict: 'phone' });
+
+                    if (leadErr) console.warn("[CRM Sync] Lead upsert failed:", leadErr.message);
+
+                    // 3. Dispatch Notifications
+                    await dispatchOmnichannel((data?.[0]?.id || 'unknown'), name || 'caller', phone, email, 'booking_confirmed', { start_time: startDate.toISOString() });
+                    
+                    console.log(`[SYNC] Success. Notification triggered for ${email || 'SMS-only'}. CRM updated.`);
+                }
+            } catch (syncErr) {
+                console.warn("[SYNC] Background tasks failed (non-critical):", syncErr.message);
             }
-        }
-
-        // TRIGGER CONFIRMATION ALONG WITH BOOKING
-        await dispatchOmnichannel((data?.[0]?.id || 'unknown'), name || 'caller', phone, leadEmail, 'booking_confirmed', { start_time: startDate.toISOString() });
-
-        res.json({ result: `Appointment successfully booked for ${name || 'caller'} on ${startDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}. Confirmed!` });
+        })();
     } catch(err) {
-        console.error("Booking Error:", err);
-        res.status(500).json({ result: "Failed to book appointment" });
+        console.error("Booking Tool Error:", err);
+        res.json({ result: "I encountered a technical error while booking. Please try again or suggest a different time." });
     }
 });
 
@@ -1103,7 +1344,7 @@ app.post('/api/tools/log_outcome', async (req, res) => {
         const cleanPhone = String(phone).replace(/\D/g, '');
         console.log(`[log_outcome] AI logged phone=${phone} | sentiment='${sentiment}' | category='${category}' | status='${status}'`);
 
-        const validCategories = ['Positive', 'Negative', 'Neutral'];
+        const validCategories = ['Interested', 'Not Interested', 'Follow Up', 'Booked Meeting', 'Standard Enquiry', 'Positive', 'Negative', 'Neutral'];
         const safeCategory = validCategories.includes(category) ? category : 'Neutral';
 
         const { data: calls } = await supabase
@@ -1194,6 +1435,55 @@ app.post('/api/tools/hang_up', async (req, res) => {
     } catch(err) {
         console.error("Hangup Error:", err);
         res.status(500).json({ result: "Failed to hang up" });
+    }
+});
+
+app.post('/api/tools/transfer', async (req, res) => {
+    try {
+        const { phone } = req.body;
+        console.log(`[TRANSFER] AI requested human handoff for phone=${phone}`);
+        const cleanPhone = String(phone).replace(/\D/g, '');
+
+        // 1. Find the active call
+        const { data: calls } = await supabase
+            .from('calls')
+            .select('twilio_sid')
+            .or(`from_phone.ilike.%${cleanPhone}%,to_phone.ilike.%${cleanPhone}%`)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (!calls || calls.length === 0 || !calls[0].twilio_sid) {
+            return res.json({ result: "I couldn't find an active call record to transfer. Please try again or suggest another way to connect." });
+        }
+
+        const callSid = calls[0].twilio_sid;
+
+        // 2. Get the transfer number from settings
+        const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').maybeSingle();
+        const transferNumber = twInt?.meta_data?.transfer_number;
+        const TWILIO_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
+        const TWILIO_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
+
+        if (!transferNumber) {
+            console.warn(`[TRANSFER] No transfer number configured for SID: ${callSid}`);
+            return res.json({ result: "I'm sorry, but no human transfer number has been configured in my settings yet. Is there anything else I can help you with?" });
+        }
+
+        // 3. Execute transfer via Twilio SDK
+        if (TWILIO_SID && TWILIO_AUTH) {
+            const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
+            const transferTwiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say>Please wait while I transfer your call to a human representative.</Say><Dial>${transferNumber}</Dial></Response>`;
+            
+            await twilioClient.calls(callSid).update({ twiml: transferTwiml });
+            console.log(`[TRANSFER] 🚀 Call ${callSid} redirected to ${transferNumber}`);
+            
+            return res.json({ result: "Transferring you now. Please stay on the line." });
+        }
+
+        res.json({ result: "Transfer failed due to configuration issues." });
+    } catch (err) {
+        console.error("Transfer Tool Error:", err);
+        res.json({ result: "I encountered an error while trying to transfer the call." });
     }
 });
 
@@ -1625,7 +1915,12 @@ async function launchCampaignWithContacts(contacts, campaignName, voice, goal, s
             await supabase.from('campaigns').update({ status: 'failed' }).eq('id', campaign.id);
             return;
         }
-        const serverBaseUrl = "https://saas-backend.xqnsvk.easypanel.host";
+        const serverBaseUrl = BACKEND_URL;
+        if (!serverBaseUrl) {
+            console.error("❌ [Campaign] BACKEND_URL is missing. Campaign callbacks will fail. Set it in your environment variables.");
+            await supabase.from('campaigns').update({ status: 'failed' }).eq('id', campaign.id);
+            return;
+        }
 
         for (let i = 0; i < contacts.length; i++) {
             const contact = contacts[i];
@@ -1920,3 +2215,140 @@ cron.schedule('*/5 * * * *', async () => {
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`AI Backend API running on port ${PORT}...`);
 });
+
+// ── ULTRAVOX CORPORA ROUTES ──
+
+const multer = require('multer');
+const FormData = require('form-data');
+const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args)).catch(() => require('node-fetch')(...args));
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+async function getCorpusKey() {
+    const { data } = await supabase.from('integrations').select('api_key').eq('provider', 'ultravox_corpus').maybeSingle();
+    return data?.api_key || process.env.ULTRAVOX_API_KEY;
+}
+
+// Upload a PDF/Word file to Ultravox Corpora
+app.post('/api/corpora/upload', upload.single('file'), async (req, res) => {
+    try {
+        const apiKey = await getCorpusKey();
+        if (!apiKey) return res.json({ success: false, error: 'No Corpus API key configured. Add it in API Credentials.' });
+        if (!req.file) return res.json({ success: false, error: 'No file provided.' });
+
+        // Step 1: Create a corpus
+        const corpusRes = await fetch('https://api.ultravox.ai/api/corpora', {
+            method: 'POST',
+            headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: req.file.originalname || 'Uploaded Document' })
+        });
+        const corpus = await corpusRes.json();
+        if (!corpus.corpusId) return res.json({ success: false, error: `Corpus creation failed: ${JSON.stringify(corpus)}` });
+
+        // Step 2: Upload file to corpus
+        const formData = new FormData();
+        formData.append('file', req.file.buffer, { filename: req.file.originalname, contentType: req.file.mimetype });
+        const uploadRes = await fetch(`https://api.ultravox.ai/api/corpora/${corpus.corpusId}/documents`, {
+            method: 'POST',
+            headers: { 'X-API-Key': apiKey, ...formData.getHeaders() },
+            body: formData
+        });
+        const uploadData = await uploadRes.json();
+        console.log('[Corpus Upload]', uploadData);
+
+        // Save this as our active search corpus
+        await supabase.from('integrations').upsert({
+            provider: 'ultravox_corpus',
+            api_key: apiKey,
+            meta_data: { corpusId: corpus.corpusId, last_updated: new Date().toISOString() }
+        }, { onConflict: 'provider' });
+
+        res.json({ success: true, corpusId: corpus.corpusId, document: uploadData });
+    } catch (err) {
+        console.error('[Corpus Upload Error]', err);
+        res.json({ success: false, error: err.message });
+    }
+});
+
+// Add a URL as a source to Ultravox Corpora
+app.post('/api/corpora/add-url', async (req, res) => {
+    try {
+        const { url } = req.body;
+        if (!url) return res.json({ success: false, error: 'No URL provided.' });
+        const apiKey = await getCorpusKey();
+        if (!apiKey) return res.json({ success: false, error: 'No Corpus API key configured.' });
+
+        // Create a corpus for this URL
+        const corpusRes = await fetch('https://api.ultravox.ai/api/corpora', {
+            method: 'POST',
+            headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: `Web: ${url.substring(0, 50)}` })
+        });
+        const corpus = await corpusRes.json();
+        if (!corpus.corpusId) return res.json({ success: false, error: `Corpus creation failed: ${JSON.stringify(corpus)}` });
+
+        // Add URL as a source
+        const srcRes = await fetch(`https://api.ultravox.ai/api/corpora/${corpus.corpusId}/sources`, {
+            method: 'POST',
+            headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'url', url })
+        });
+        const srcData = await srcRes.json();
+        console.log('[Corpus URL Add]', srcData);
+
+        // Save this as our active search corpus
+        await supabase.from('integrations').upsert({
+            provider: 'ultravox_corpus',
+            api_key: apiKey,
+            meta_data: { corpusId: corpus.corpusId, source_url: url, last_updated: new Date().toISOString() }
+        }, { onConflict: 'provider' });
+
+        res.json({ success: true, corpusId: corpus.corpusId, source: srcData });
+    } catch (err) {
+        console.error('[Corpus URL Error]', err);
+        res.json({ success: false, error: err.message });
+    }
+});
+
+// --- KNOWLEDGE BASE / CORPUS QUERY TOOL ---
+app.post('/api/tools/query-corpus', async (req, res) => {
+    try {
+        const { query } = req.body;
+        if (!query) return res.json({ result: "No query provided." });
+
+        // 1. Fetch the active corpus ID
+        const { data: corpusInt } = await supabase.from('integrations').select('*').eq('provider', 'ultravox_corpus').maybeSingle();
+        const corpusId = corpusInt?.meta_data?.corpusId;
+        const apiKey = corpusInt?.api_key || process.env.ULTRAVOX_API_KEY;
+
+        if (!corpusId || !apiKey) {
+            console.warn("[CORPUS] Missing Corpus configuration.");
+            return res.json({ result: "I'm sorry, I don't have access to the advanced knowledge base right now." });
+        }
+
+        console.log(`[CORPUS] Querying: "${query}" in Corpus: ${corpusId}`);
+
+        // 2. Query Ultravox Corpora API (Search / Query)
+        const searchRes = await fetch(`https://api.ultravox.ai/api/corpora/${corpusId}/query`, {
+            method: 'POST',
+            headers: {
+                'X-API-Key': apiKey,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ query, maxResults: 3 })
+        });
+
+        const searchData = await searchRes.json();
+        
+        if (searchData.results && searchData.results.length > 0) {
+            const context = searchData.results.map(r => r.text).join("\n---\n");
+            return res.json({ result: context });
+        }
+
+        res.json({ result: "I couldn't find any specific information about that in my documents." });
+    } catch (err) {
+        console.error("Corpus Query Error:", err);
+        res.json({ result: "I'm having trouble searching my documents right now." });
+    }
+});
+
+

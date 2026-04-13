@@ -1,4 +1,7 @@
-FROM node:18-alpine
+FROM node:20-alpine
+
+# Install curl for health checks
+RUN apk add --no-cache curl
 
 WORKDIR /app
 
@@ -13,6 +16,10 @@ COPY . .
 
 # Expose standard port
 EXPOSE 8000
+
+# Health check to ensure the container is ready
+HEALTHCHECK --interval=60s --timeout=10s --start-period=10s --retries=5 \
+  CMD curl -f http://localhost:8000/ || exit 1
 
 # Start Express server
 CMD ["node", "server.js"]
