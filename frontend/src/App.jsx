@@ -131,6 +131,7 @@ export default function App() {
   const [editingAppt, setEditingAppt] = useState(null);
   const [viewSummaryModal, setViewSummaryModal] = useState(null);
   const [expandedSentiment, setExpandedSentiment] = useState({});
+  const [expandedRecording, setExpandedRecording] = useState(null);
   const [manualLeadModal, setManualLeadModal] = useState(false);
   const [newLead, setNewLead] = useState({ name: '', phone: '', email: '', ai_context: '', segment: 'Warm' });
   const [campaignGoal, setCampaignGoal] = useState('');
@@ -990,6 +991,7 @@ export default function App() {
                       <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Duration</th>
                       <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">Summary</th>
                       <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">Sentiment</th>
+                      <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">Recordings</th>
                       <th className="py-4 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">Status</th>
                     </tr>
                   </thead>
@@ -1046,6 +1048,21 @@ export default function App() {
                                 })()}
                               </div>
                            </td>
+                          <td className="py-4 px-5 text-center">
+                            {c.recording_url ? (
+                              <button 
+                                onClick={() => setExpandedRecording(expandedRecording === c.id ? null : c.id)}
+                                className={cn(
+                                  "p-2 rounded-full transition-all",
+                                  expandedRecording === c.id ? "bg-primary/20 text-primary shadow-inner" : "bg-white/5 hover:bg-white/10 text-muted-foreground"
+                                )}
+                              >
+                                <Mic size={16} />
+                              </button>
+                            ) : (
+                              <span className="text-muted-foreground/30">—</span>
+                            )}
+                          </td>
                           <td className="py-4 px-5">
                             <span className={cn("px-2.5 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider",
                               c.call_status === 'Booked' ? "bg-blue-500/10 text-blue-400" :
@@ -1057,10 +1074,10 @@ export default function App() {
                             </span>
                           </td>
                         </tr>
-                        {c.recording_url && (
+                        {c.recording_url && expandedRecording === c.id && (
                           <tr className="bg-sidebar/10 border-b border-border/30">
-                            <td colSpan="8" className="py-2 px-5">
-                               <div className="flex items-center justify-between gap-4 bg-background border border-border rounded-xl p-2 w-full max-w-4xl mx-auto shadow-sm">
+                            <td colSpan="9" className="py-2 px-5">
+                               <div className="flex items-center justify-between gap-4 bg-background border border-border rounded-xl p-2 w-full max-w-4xl mx-auto shadow-sm animate-in slide-in-from-top-1 duration-200">
                                  <div className="flex items-center gap-2 px-2 flex-shrink-0">
                                    <Mic size={14} className="text-primary" />
                                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest pl-1 border-l border-border ml-1">Recording</span>

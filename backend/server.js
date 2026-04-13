@@ -213,7 +213,8 @@ app.post('/api/twilio/inbound', async (req, res) => {
         5. EMAIL HANDLING - CRITICAL: When a caller gives you an email address by voice, pass it EXACTLY as you heard it into the 'email' parameter. DO NOT validate, reformat, or spell-check it. The backend system will automatically fix it.
            - If caller says 'contact dot simplicium at gmail dot com', pass exactly: 'contact dot simplicium at gmail dot com'
            - NEVER say phrases like 'could you spell that out', 'is that correct?', or 'can you confirm your email'. Just use what you heard.
-        6. CRITICAL - ONE BOOKING ONLY: Call 'book_appointment' EXACTLY ONCE per caller per slot. NEVER retry, NEVER call it twice. If you get a conflict error, offer the caller a DIFFERENT time slot instead of retrying the same one.`;
+        6. CRITICAL - ONE BOOKING ONLY: Call 'book_appointment' EXACTLY ONCE per caller per slot. NEVER retry, NEVER call it twice. If you get a conflict error, offer the caller a DIFFERENT time slot instead of retrying the same one.
+        7. APPOINTMENT MODIFICATION/CANCELLATION: If a caller wants to update or delete their appointment, you MUST verify their identity by asking for their Name and Phone number first. Only call 'update_appointment' or 'delete_appointment' AFTER they provide this verification.`;
         
         finalPrompt += "\n\nULTRA-IMPORTANT - CALL TERMINATION: As soon as you say a FINAL goodbye at the end of a session (e.g., 'Have a great day!' or 'Goodbye') or the caller says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for the caller to hang up first. This is critical to reduce telephony costs.";
         
@@ -570,7 +571,8 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         1. ALWAYS call 'check_availability' before suggesting ANY time to a lead.
         2. DO NOT book outside of business hours or on holidays.
         3. ALWAYS use +05:30 offset. Example: 2026-04-08T15:00:00+05:30.
-        4. If they ask about an existing slot, cross-reference the context provided.`;
+        4. If they ask about an existing slot, cross-reference the context provided.
+        5. APPOINTMENT MODIFICATION/CANCELLATION: If a lead wants to update or delete their appointment, you MUST verify their identity by asking for their Name and Phone number first. Only call 'update_appointment' or 'delete_appointment' AFTER they provide this verification.`;
         
         if (agentData?.personality) finalPrompt += `\n\nYour Personality/Tone: ${agentData.personality}`;
         if (reqGoal) finalPrompt += `\n\n[PRIMARY MISSION GOAL]: ${reqGoal}`;
@@ -634,6 +636,54 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
                         }
                     ],
                     http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/book` }
+                }
+            },
+            {
+                temporaryTool: {
+                    modelToolName: "update_appointment",
+                    description: "Reschedule or update an existing appointment to a new time. Requires caller verification.",
+                    dynamicParameters: [
+                        {
+                            name: "name",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "First and last name used originally" },
+                            required: true
+                        },
+                        {
+                            name: "phone",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "Phone number used originally" },
+                            required: true
+                        },
+                        {
+                            name: "new_start_time",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "ISO 8601 datetime string of the new desired time slot" },
+                            required: true
+                        }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/update` }
+                }
+            },
+            {
+                temporaryTool: {
+                    modelToolName: "delete_appointment",
+                    description: "Cancel and delete an existing appointment. Strongly requires caller verification.",
+                    dynamicParameters: [
+                        {
+                            name: "name",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "First and last name used originally" },
+                            required: true
+                        },
+                        {
+                            name: "phone",
+                            location: "PARAMETER_LOCATION_BODY",
+                            schema: { type: "string", description: "Phone number used originally" },
+                            required: true
+                        }
+                    ],
+                    http: { httpMethod: "POST", baseUrlPattern: `${baseUrl}/api/tools/delete` }
                 }
             },
             {
