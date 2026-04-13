@@ -219,9 +219,10 @@ app.post('/api/twilio/inbound', async (req, res) => {
         
         finalPrompt += "\n\nHUMAN TRANSFER: If the caller explicitly asks to speak to a real person, a human, or a manager, or if they have a complex technical issue that you cannot solve using the knowledge base, tell them 'I will transfer you to one of our specialists now' and then IMMEDIATELY call 'transfer_call'.";
 
-        // Force https for Ultravox tool callbacks as required by their API
-        const baseUrl = `https://${req.get('host')}`;
-        console.log(`[Ultravox] Creating session with tools at: ${baseUrl}`);
+        // Use BACKEND_URL if set, otherwise fallback to request host.
+        // Prefer HTTPS if BACKEND_URL is not set but request host is available.
+        const baseUrl = BACKEND_URL || (req.get('host') ? `https://${req.get('host')}` : '');
+        console.log(`[Ultravox] Creating session with tools/callbacks at: ${baseUrl}`);
         
         const rawVoice = agentData?.voice_preset || "Mark";
         const validVoices = ["Alice", "Jessica", "Kelsey", "Priya", "Lulu", "Mark", "Victor", "Vitya", "Zdenek"];
@@ -414,23 +415,31 @@ app.post('/api/twilio/inbound', async (req, res) => {
             ultravox_call_id: ultravoxCallId
         }]);
 
-        // 4. TRIGGER RECORDING via REST API (If enabled in settings)
-        const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').maybeSingle();
-        const TW_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
-        const TW_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
-        
-        // Respect the recording_enabled toggle in agent settings
-        const recordingEnabled = agentData?.record_calls !== false; // Default to true if not set
-        
-        if (recordingEnabled && TW_SID && TW_AUTH) {
-            const client = require('twilio')(TW_SID, TW_AUTH);
-            client.calls(callSid).recordings.create({
-                recordingStatusCallback: `${baseUrl}/api/twilio/recording-callback`,
-                recordingStatusCallbackEvent: ['completed'],
-                trim: 'trim-silence'
-            }).catch(e => console.error("Twilio Inbound Record Error:", e));
-        } else {
-            console.log(`[Twilio] Recording skipped (recording_enabled: ${recordingEnabled})`);
+        // 4. TRIGGER RECORDING (If enabled in settings)
+        // Re-fetch agent settings to ensure we have the latest toggle state
+        try {
+            const { data: currentAgent } = await supabase.from('agent_settings').select('record_calls').limit(1).maybeSingle();
+            const recordingEnabled = currentAgent?.record_calls !== false; 
+            
+            if (recordingEnabled) {
+                const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').maybeSingle();
+                const TW_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
+                const TW_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
+
+                if (TW_SID && TW_AUTH && baseUrl) {
+                    const client = require('twilio')(TW_SID, TW_AUTH);
+                    client.calls(callSid).recordings.create({
+                        recordingStatusCallback: `${baseUrl}/api/twilio/recording-callback`,
+                        recordingStatusCallbackEvent: ['completed'],
+                        trim: 'trim-silence'
+                    }).catch(e => console.error("[Twilio] Inbound Recording Trigger Error:", e.message));
+                    console.log(`[Twilio] Recording triggered for call ${callSid}`);
+                }
+            } else {
+                console.log(`[Twilio] Recording skipped for call ${callSid} (User disabled)`);
+            }
+        } catch (confErr) {
+            console.error("[Twilio] Failed to check recording settings:", confErr.message);
         }
 
         // 5. Return Twilio XML (TwiML) instantly bridging the caller to the Ultravox WebSocket
