@@ -414,17 +414,23 @@ app.post('/api/twilio/inbound', async (req, res) => {
             ultravox_call_id: ultravoxCallId
         }]);
 
-        // 4. TRIGGER RECORDING via REST API
+        // 4. TRIGGER RECORDING via REST API (If enabled in settings)
         const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').maybeSingle();
         const TW_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
         const TW_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
-        if (TW_SID && TW_AUTH) {
+        
+        // Respect the recording_enabled toggle in agent settings
+        const recordingEnabled = agentData?.record_calls !== false; // Default to true if not set
+        
+        if (recordingEnabled && TW_SID && TW_AUTH) {
             const client = require('twilio')(TW_SID, TW_AUTH);
             client.calls(callSid).recordings.create({
                 recordingStatusCallback: `${baseUrl}/api/twilio/recording-callback`,
                 recordingStatusCallbackEvent: ['completed'],
                 trim: 'trim-silence'
             }).catch(e => console.error("Twilio Inbound Record Error:", e));
+        } else {
+            console.log(`[Twilio] Recording skipped (recording_enabled: ${recordingEnabled})`);
         }
 
         // 5. Return Twilio XML (TwiML) instantly bridging the caller to the Ultravox WebSocket
@@ -476,6 +482,10 @@ app.post('/api/calls/outbound', async (req, res) => {
         const serverBaseUrl = BACKEND_URL || `https://${req.get('host')}`;
         const webhookUrl = `${serverBaseUrl}/api/twilio/outbound-twiml?toPhone=${encodeURIComponent(toPhone || '')}&voice=${encodeURIComponent(voice || '')}&goal=${encodeURIComponent(goal || '')}&name=${encodeURIComponent(name || '')}`;
 
+        // Get agent settings to check if recording is enabled
+        const { data: agentData } = await supabase.from('agent_settings').select('record_calls').limit(1).single();
+        const recordingEnabled = agentData?.record_calls !== false;
+
         // 3. Directly command Twilio to physically dial the lead
         const call = await twilioClient.calls.create({
             url: webhookUrl,
@@ -483,7 +493,7 @@ app.post('/api/calls/outbound', async (req, res) => {
             from: TWILIO_PHONE,
             statusCallback: `${serverBaseUrl}/api/twilio/status`,
             statusCallbackEvent: ['completed'],
-            record: true,
+            record: recordingEnabled,
             recordingStatusCallback: `${serverBaseUrl}/api/twilio/recording-callback`,
             recordingStatusCallbackEvent: ['completed']
         });
@@ -876,6 +886,7 @@ app.post('/api/agent', async (req, res) => {
         if (close_time !== undefined) updateData.close_time = close_time;
         if (non_working_dates !== undefined) updateData.non_working_dates = non_working_dates;
         if (tools_config !== undefined) updateData.tools_config = tools_config;
+        if (req.body.record_calls !== undefined) updateData.record_calls = req.body.record_calls;
         
         // Upsert to the first basic row
         const { data: existing } = await supabase.from('agent_settings').select('id').limit(1).single();

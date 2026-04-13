@@ -280,6 +280,7 @@ export default function App() {
     { id: 'leads', label: 'Lead CRM', icon: Target },
     { id: 'integrations_logs', label: 'Integrations', icon: Send },
     { section: 'Calling' },
+    { id: 'recordings', label: 'Voice Recordings', icon: Mic },
     { id: 'campaigns', label: 'Outbound Campaigns', icon: Megaphone },
   ];
 
@@ -841,7 +842,8 @@ export default function App() {
                       hangUp: e.target.hangUp.checked,
                       transferCall: e.target.transferCall.checked,
                       queryCorpus: e.target.queryCorpus.checked
-                    }
+                    },
+                    record_calls: e.target.record_calls.checked
                   };
                   const res = await fetch(`${API_BASE}/api/agent`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                   const data = await res.json();
@@ -913,6 +915,16 @@ export default function App() {
                         </label>
                       </div>
                     ))}
+                  </div>
+                  <div className="mt-4 p-4 bg-primary/5 border border-primary/20 rounded-xl flex items-center justify-between">
+                    <div>
+                       <div className="text-[11px] font-bold text-primary uppercase tracking-wider">Master Call Recording</div>
+                       <div className="text-[10px] text-muted-foreground">Automatically record and store all calls in AWS S3</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input type="checkbox" name="record_calls" defaultChecked={agentSettings.record_calls !== false} className="sr-only peer" />
+                      <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                    </label>
                   </div>
                 </div>
                 <div className="mt-8 flex justify-end pt-4 border-t border-border">
@@ -1501,6 +1513,56 @@ export default function App() {
                  ))}
                  {campaigns.length === 0 && <div className="text-xs text-muted-foreground text-center py-6 bg-card border border-border rounded-xl">No campaigns created yet. Upload a CSV or create one manually.</div>}
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── VOICE RECORDINGS PAGE ── */}
+        {activePage === 'recordings' && (
+          <div className="space-y-8 fade-in w-full">
+            <div className="flex justify-between items-end">
+              <div>
+                <h2 className="text-3xl font-extrabold tracking-tight">Voice Recordings</h2>
+                <p className="text-sm text-muted-foreground mt-1.5 font-medium">Browse and listen to your AI agent's conversations</p>
+              </div>
+              <button onClick={fetchAll} className="flex items-center gap-2 text-xs border border-border px-3 py-1.5 rounded-lg hover:text-primary transition bg-card shadow-sm">
+                <RefreshCw size={11}/> Sync
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {callLogs.filter(c => c.recording_url).map((c, i) => (
+                <div key={i} className="bg-card border border-border rounded-2xl p-5 shadow-premium hover:border-primary/50 transition-all group">
+                   <div className="flex justify-between items-start mb-4">
+                      <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all">
+                        <Mic size={20} />
+                      </div>
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{new Date(c.created_at).toLocaleDateString()}</span>
+                   </div>
+                   <div className="space-y-1 mb-6">
+                      <div className="text-sm font-bold truncate">{c.caller_name || 'Anonymous Caller'}</div>
+                      <div className="text-xs text-muted-foreground font-mono">{c.direction === 'inbound' ? c.from_phone : c.to_phone}</div>
+                   </div>
+                   <div className="bg-sidebar/30 rounded-xl p-3 border border-border mb-5">
+                      <audio controls className="w-full h-8">
+                        <source src={c.recording_url} type="audio/mpeg" />
+                      </audio>
+                   </div>
+                   <div className="flex gap-2">
+                      <button onClick={() => setViewSummaryModal(c)} className="flex-1 bg-white/5 hover:bg-white/10 text-[11px] font-bold py-2 rounded-lg border border-border transition-colors uppercase tracking-wider">View Summary</button>
+                      <a href={c.recording_url} target="_blank" rel="noreferrer" className="px-3 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-lg flex items-center justify-center transition-all">
+                        <Download size={14} />
+                      </a>
+                   </div>
+                </div>
+              ))}
+              {callLogs.filter(c => c.recording_url).length === 0 && (
+                <div className="col-span-3 text-center py-20 bg-card border border-dashed border-border rounded-2xl">
+                   <Mic size={40} className="mx-auto text-muted-foreground/20 mb-4" />
+                   <h3 className="font-bold text-lg text-muted-foreground">No recordings found</h3>
+                   <p className="text-xs text-muted-foreground mt-1">Recordings will appear here once calls are completed.</p>
+                </div>
+              )}
             </div>
           </div>
         )}
