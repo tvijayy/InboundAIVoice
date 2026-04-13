@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BarChart3, Calendar, Bot, Mic, Key, Phone, Users, PhoneOutgoing, Globe, Sparkles, Trash2, RefreshCw, CheckCircle, XCircle, Target, BookOpen, Megaphone, Bell, Sun, Moon, Wrench, TrendingUp, Clock, Activity, Edit2, Send, Filter, Download, ToggleLeft, ToggleRight, Link, FileText } from 'lucide-react';
 import { cn } from './lib/utils';
 import * as XLSX from 'xlsx';
@@ -1014,48 +1014,65 @@ export default function App() {
                       }
                       return true;
                     }).map((c, i) => (
-                      <tr key={i} className="hover:bg-white/[0.02] transition-colors">
-                        <td className="py-4 px-5 text-xs text-muted-foreground">{new Date(c.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
-                        <td className="py-4 px-5 text-xs font-medium">{c.caller_name || 'Unknown'}</td>
-                        <td className="py-4 px-5 font-mono text-primary text-xs">{c.direction === 'inbound' ? c.from_phone : c.to_phone}</td>
-                        <td className="py-4 px-5 capitalize text-[11px] tracking-wide text-muted-foreground">{c.direction}</td>
-                        <td className="py-4 px-5 text-xs font-mono">{c.duration_seconds ? `${c.duration_seconds}s` : '—'}</td>
-                        <td className="py-4 px-5 text-center">
-                          <button onClick={() => setViewSummaryModal(c)} className="bg-white/5 hover:bg-white/10 text-xs px-3 py-1.5 rounded-full border border-border transition-colors">View Data</button>
-                        </td>
-                         <td className="py-4 px-5 text-center">
-                            <div className={cn(
-                              "px-4 py-1.5 rounded-full text-[10px] items-center justify-center flex transition-all border shadow-sm font-bold tracking-wide mx-auto w-max",
-                              (!c.duration_seconds || c.duration_seconds === 0) ? "bg-slate-500/10 text-slate-400 border-slate-500/20" :
-                              (c.sentiment_category === 'Positive') ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : 
-                              (c.sentiment_category === 'Negative') ? "bg-red-500/10 text-red-400 border-red-500/20" : 
-                              "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
-                            )}>
-                              {(() => {
-                                if (!c.duration_seconds || c.duration_seconds === 0) return 'No Connection';
-                                const raw = (c.sentiment || '').trim();
-                                const cat = (c.sentiment_category || 'Neutral');
-                                if (raw && raw.toLowerCase() !== 'neutral' && raw.toLowerCase() !== cat.toLowerCase()) {
-                                  const words = raw.split(/\s+/).filter(Boolean);
-                                  return words.length >= 2 ? words.slice(0, 4).join(' ') : raw;
-                                }
-                                if (cat === 'Positive' && !raw) return 'Interested';
-                                if (cat === 'Negative' && !raw) return 'Customer Concern';
-                                return 'Standard Inquiry';
-                              })()}
-                            </div>
-                         </td>
-                        <td className="py-4 px-5">
-                          <span className={cn("px-2.5 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider",
-                            c.call_status === 'Booked' ? "bg-blue-500/10 text-blue-400" :
-                            c.call_status === 'Missed' ? "bg-red-500/10 text-red-500" :
-                            c.call_status === 'Follow Up' ? "bg-yellow-500/10 text-yellow-500" :
-                            c.call_status === 'Resolved' ? "bg-green-500/10 text-green-500" :
-                            "bg-primary/10 text-primary")}>
-                            {c.call_status || c.status || 'Completed'}
-                          </span>
-                        </td>
-                      </tr>
+                      <React.Fragment key={i}>
+                        <tr className="hover:bg-white/[0.02] transition-colors">
+                          <td className="py-4 px-5 text-xs text-muted-foreground">{new Date(c.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</td>
+                          <td className="py-4 px-5 text-xs font-medium">{c.caller_name || 'Unknown'}</td>
+                          <td className="py-4 px-5 font-mono text-primary text-xs">{c.direction === 'inbound' ? c.from_phone : c.to_phone}</td>
+                          <td className="py-4 px-5 capitalize text-[11px] tracking-wide text-muted-foreground">{c.direction}</td>
+                          <td className="py-4 px-5 text-xs font-mono">{c.duration_seconds ? `${c.duration_seconds}s` : '—'}</td>
+                          <td className="py-4 px-5 text-center">
+                            <button onClick={() => setViewSummaryModal(c)} className="bg-white/5 hover:bg-white/10 text-xs px-3 py-1.5 rounded-full border border-border transition-colors">View Data</button>
+                          </td>
+                           <td className="py-4 px-5 text-center">
+                              <div className={cn(
+                                "px-4 py-1.5 rounded-full text-[10px] items-center justify-center flex transition-all border shadow-sm font-bold tracking-wide mx-auto w-max",
+                                (!c.duration_seconds || c.duration_seconds === 0) ? "bg-slate-500/10 text-slate-400 border-slate-500/20" :
+                                (c.sentiment_category === 'Positive') ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : 
+                                (c.sentiment_category === 'Negative') ? "bg-red-500/10 text-red-400 border-red-500/20" : 
+                                "bg-cyan-500/10 text-cyan-400 border-cyan-500/20"
+                              )}>
+                                {(() => {
+                                  if (!c.duration_seconds || c.duration_seconds === 0) return 'No Connection';
+                                  const raw = (c.sentiment || '').trim();
+                                  const cat = (c.sentiment_category || 'Neutral');
+                                  if (raw && raw.toLowerCase() !== 'neutral' && raw.toLowerCase() !== cat.toLowerCase()) {
+                                    const words = raw.split(/\s+/).filter(Boolean);
+                                    return words.length >= 2 ? words.slice(0, 4).join(' ') : raw;
+                                  }
+                                  if (cat === 'Positive' && !raw) return 'Interested';
+                                  if (cat === 'Negative' && !raw) return 'Customer Concern';
+                                  return 'Standard Inquiry';
+                                })()}
+                              </div>
+                           </td>
+                          <td className="py-4 px-5">
+                            <span className={cn("px-2.5 py-1 rounded-full text-[10px] uppercase font-bold tracking-wider",
+                              c.call_status === 'Booked' ? "bg-blue-500/10 text-blue-400" :
+                              c.call_status === 'Missed' ? "bg-red-500/10 text-red-500" :
+                              c.call_status === 'Follow Up' ? "bg-yellow-500/10 text-yellow-500" :
+                              c.call_status === 'Resolved' ? "bg-green-500/10 text-green-500" :
+                              "bg-primary/10 text-primary")}>
+                              {c.call_status || c.status || 'Completed'}
+                            </span>
+                          </td>
+                        </tr>
+                        {c.recording_url && (
+                          <tr className="bg-sidebar/10 border-b border-border/30">
+                            <td colSpan="8" className="py-2 px-5">
+                               <div className="flex items-center justify-between gap-4 bg-background border border-border rounded-xl p-2 w-full max-w-4xl mx-auto shadow-sm">
+                                 <div className="flex items-center gap-2 px-2 flex-shrink-0">
+                                   <Mic size={14} className="text-primary" />
+                                   <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest pl-1 border-l border-border ml-1">Recording</span>
+                                 </div>
+                                 <audio controls className="w-full h-8 outline-none grayscale opacity-90 hover:opacity-100 hover:grayscale-0 transition-all">
+                                   <source src={c.recording_url} type="audio/mpeg" />
+                                 </audio>
+                               </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     ))}
                     {callLogs.length === 0 && <tr><td colSpan="8" className="text-center py-12 text-muted-foreground text-xs">No calls logged yet</td></tr>}
                   </tbody>
