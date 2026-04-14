@@ -61,16 +61,10 @@ async function dispatchOmnichannel(appointmentId, name, phone, email, templateTy
     const { data: twInt } = await supabase.from('integrations').select('*').eq('provider', 'twilio').maybeSingle();
     const { data: reInt } = await supabase.from('integrations').select('*').eq('provider', 'resend').maybeSingle();
     const { data: gmInt } = await supabase.from('integrations').select('*').eq('provider', 'gmail').maybeSingle();
-    const { data: evInt } = await supabase.from('integrations').select('*').eq('provider', 'evolution_api').maybeSingle();
-
-    const EVOLUTION_API_URL = evInt?.meta_data?.url || process.env.EVOLUTION_API_URL;
-    const EVOLUTION_API_KEY = evInt?.api_key || process.env.EVOLUTION_API_KEY;
-    const EVOLUTION_INSTANCE = evInt?.meta_data?.instance || process.env.EVOLUTION_INSTANCE || 'azlon_whatsapp';
-
     const TWILIO_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
     const TWILIO_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
     const TWILIO_PHONE = twInt?.meta_data?.phone || process.env.TWILIO_PHONE_NUMBER;
-    const TWILIO_WHATSAPP_SENDER = twInt?.meta_data?.whatsapp_phone || process.env.TWILIO_WHATSAPP_SENDER || 'whatsapp:+14155238886'; 
+    const TWILIO_WHATSAPP_SENDER = twInt?.meta_data?.whatsapp_phone || process.env.TWILIO_WHATSAPP_SENDER || 'whatsapp:+16895880182'; 
     
     const RESEND_API_KEY = reInt?.api_key || process.env.RESEND_API_KEY;
     const GMAIL_USER = gmInt?.meta_data?.user || gmInt?.meta_data?.email || process.env.GMAIL_USER;
@@ -94,6 +88,10 @@ async function dispatchOmnichannel(appointmentId, name, phone, email, templateTy
         smsBody = `Hi ${name}, we missed you at your meeting today. Let us know when you're free to reschedule!`;
         emailSubject = `Sorry we missed you, ${name}`;
         emailHtml = `<h2>We missed you!</h2><p>Hi ${name},</p><p>We didn't see you at your appointment today at ${startTimeStr}.</p><p>Please let us know when you would like to reschedule!</p>`;
+    } else if (templateType === 'follow_up') {
+        smsBody = `Hi ${name}, thanks for speaking with us today! If you have any more questions about Azlon AI, feel free to ask here.`;
+        emailSubject = `Great speaking with you, ${name}!`;
+        emailHtml = `<h2>Thank you!</h2><p>Hi ${name},</p><p>It was great speaking with you earlier. If you have any further questions or need assistance, we're here to help.</p>`;
     }
 
     // --- 2. SMS via Twilio ---
@@ -115,42 +113,19 @@ async function dispatchOmnichannel(appointmentId, name, phone, email, templateTy
             }
         }
 
-        // --- 2.5 WhatsApp ---
-        // Try Evolution API first, fall back to Twilio
-        let waSent = false;
-        if (EVOLUTION_API_URL && EVOLUTION_API_KEY) {
-            try {
-                const waNumber = cleanPhone.replace('+', '');
-                await axios.post(
-                    `${EVOLUTION_API_URL}/message/sendText/${EVOLUTION_INSTANCE}`,
-                    { number: waNumber, text: smsBody },
-                    { headers: { 'apikey': EVOLUTION_API_KEY, 'Content-Type': 'application/json' } }
-                );
-                console.log(`[Omnichannel] WhatsApp (Evolution API) sent to ${waNumber}`);
-                waSent = true;
-                if (appointmentId && appointmentId !== 'unknown') {
-                    await supabase.from('appointments').update({ whatsapp_status: 'Sent' }).eq('id', appointmentId);
-                }
-            } catch(e) {
-                console.error(`[Omnichannel] Evolution API WhatsApp Error:`, e.response?.data || e.message);
+        // --- 2.5 WhatsApp via Twilio ---
+        const TWILIO_WHATSAPP_SENDER = twInt?.meta_data?.whatsapp_phone || process.env.TWILIO_WHATSAPP_SENDER || 'whatsapp:+16895880182';
+        let waSenderFormat = TWILIO_WHATSAPP_SENDER.startsWith('whatsapp:') ? TWILIO_WHATSAPP_SENDER : `whatsapp:${TWILIO_WHATSAPP_SENDER}`;
+        try {
+            await twilioClient.messages.create({ body: smsBody, from: waSenderFormat, to: `whatsapp:${cleanPhone}` });
+            console.log(`[Omnichannel] WhatsApp (Twilio) sent to ${cleanPhone}`);
+            if (appointmentId && appointmentId !== 'unknown') {
+                await supabase.from('appointments').update({ whatsapp_status: 'Sent' }).eq('id', appointmentId);
             }
-        }
-
-        // Fallback to Twilio WhatsApp if Evolution API not set up or failed
-        if (!waSent) {
-            const TWILIO_WHATSAPP_SENDER = twInt?.meta_data?.whatsapp_phone || process.env.TWILIO_WHATSAPP_SENDER || 'whatsapp:+14155238886';
-            let waSenderFormat = TWILIO_WHATSAPP_SENDER.startsWith('whatsapp:') ? TWILIO_WHATSAPP_SENDER : `whatsapp:${TWILIO_WHATSAPP_SENDER}`;
-            try {
-                await twilioClient.messages.create({ body: smsBody, from: waSenderFormat, to: `whatsapp:${cleanPhone}` });
-                console.log(`[Omnichannel] WhatsApp (Twilio) sent to ${cleanPhone}`);
-                if (appointmentId && appointmentId !== 'unknown') {
-                    await supabase.from('appointments').update({ whatsapp_status: 'Sent' }).eq('id', appointmentId);
-                }
-            } catch(e) {
-                console.error(`[Omnichannel] Twilio WhatsApp Error:`, e.message);
-                if (appointmentId && appointmentId !== 'unknown') {
-                    await supabase.from('appointments').update({ whatsapp_status: 'Failed' }).eq('id', appointmentId);
-                }
+        } catch(e) {
+            console.error(`[Omnichannel] Twilio WhatsApp Error:`, e.message);
+            if (appointmentId && appointmentId !== 'unknown') {
+                await supabase.from('appointments').update({ whatsapp_status: 'Failed' }).eq('id', appointmentId);
             }
         }
     }
@@ -1954,23 +1929,6 @@ app.post('/api/integrations/ultravox', async (req, res) => {
     } catch(err) { res.status(500).json({ error: "Failed to save integration" }); }
 });
 
-// --- EVOLUTION API INTEGRATION ---
-app.get('/api/integrations/evolution_api', async (req, res) => {
-    try {
-        const { data, error } = await supabase.from('integrations').select('*').eq('provider', 'evolution_api').single();
-        if (error && error.code !== 'PGRST116') throw error;
-        if (!data) return res.json({ success: true, integration: null });
-        
-        // For public reference if needed
-        const integration = {
-            url: data.meta_data?.url || '',
-            instance: data.meta_data?.instance || 'azlon_whatsapp',
-            // Return masked key for UI display
-            api_key: data.api_key ? (data.api_key.substring(0, 4) + '****************' + data.api_key.substring(data.api_key.length - 4)) : ''
-        };
-        res.json({ success: true, integration });
-    } catch(err) { res.status(500).json({ error: "Failed to fetch integration" }); }
-});
 
 // --- Shared CSV Parser (used by both CSV upload and Google Sheets) ---
 function parseCSVContacts(csvText) {
@@ -2476,75 +2434,6 @@ app.post('/api/tools/query-corpus', async (req, res) => {
     }
 });
 
-// ─────────────────────────────────────────────────────────────
-// EVOLUTION API — WhatsApp QR Code & Status Endpoints
-// ─────────────────────────────────────────────────────────────
-
-async function getEvolutionConfig() {
-    const { data: evInt } = await supabase.from('integrations').select('*').eq('provider', 'evolution_api').maybeSingle();
-    return {
-        url: evInt?.meta_data?.url || process.env.EVOLUTION_API_URL || '',
-        key: evInt?.api_key || process.env.EVOLUTION_API_KEY || '',
-        instance: evInt?.meta_data?.instance || process.env.EVOLUTION_INSTANCE || 'azlon_whatsapp',
-    };
-}
-
-// GET /api/whatsapp/status — Returns connection state + QR code if disconnected
-app.get('/api/whatsapp/status', async (req, res) => {
-    try {
-        const { url, key, instance } = await getEvolutionConfig();
-        if (!url || !key) return res.json({ connected: false, error: 'Evolution API not configured.' });
-
-        const headers = { apikey: key };
-
-        // Check instance connection status
-        let state = 'close';
-        try {
-            const statusRes = await axios.get(`${url}/instance/connectionState/${instance}`, { headers });
-            state = statusRes.data?.instance?.state || statusRes.data?.state || 'close';
-            if (state === 'open') {
-                return res.json({ connected: true, state });
-            }
-        } catch (e) {
-            console.warn('[Evolution] Instance not found or error checking status, will attempt to connect/create.');
-        }
-
-        // Not connected — fetch QR code
-        try {
-            const connectRes = await axios.get(`${url}/instance/connect/${instance}`, { headers });
-            const qr = connectRes.data?.base64 || connectRes.data?.qrcode?.base64 || null;
-            return res.json({ connected: false, state, qrCode: qr });
-        } catch (qrErr) {
-            // Instance may not exist yet — create it
-            await axios.post(`${url}/instance/create`, { instanceName: instance, qrcode: true, integration: 'WHATSAPP-BAILEYS' }, { headers });
-            const connectRes2 = await axios.get(`${url}/instance/connect/${instance}`, { headers });
-            const qr2 = connectRes2.data?.base64 || connectRes2.data?.qrcode?.base64 || null;
-            return res.json({ connected: false, state: 'waiting_qr', qrCode: qr2 });
-        }
-    } catch (err) {
-        console.error('[Evolution] Status error:', err.response?.data || err.message);
-        res.json({ connected: false, error: err.response?.data?.message || err.message });
-    }
-});
-
-// POST /api/whatsapp/connect — Force re-initialize instance and return fresh QR
-app.post('/api/whatsapp/connect', async (req, res) => {
-    try {
-        const { url, key, instance } = await getEvolutionConfig();
-        if (!url || !key) return res.json({ success: false, error: 'Evolution API not configured.' });
-
-        const headers = { apikey: key, 'Content-Type': 'application/json' };
-        // Delete old instance if it exists, then recreate
-        try { await axios.delete(`${url}/instance/delete/${instance}`, { headers }); } catch(_) {}
-        await axios.post(`${url}/instance/create`, { instanceName: instance, qrcode: true, integration: 'WHATSAPP-BAILEYS' }, { headers });
-        const connectRes = await axios.get(`${url}/instance/connect/${instance}`, { headers });
-        const qr = connectRes.data?.base64 || connectRes.data?.qrcode?.base64 || null;
-        res.json({ success: true, qrCode: qr });
-    } catch (err) {
-        console.error('[Evolution] Connect error:', err.response?.data || err.message);
-        res.json({ success: false, error: err.response?.data?.message || err.message });
-    }
-});
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`AI Backend API running on port ${PORT}...`);

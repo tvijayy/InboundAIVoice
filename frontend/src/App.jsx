@@ -22,12 +22,9 @@ export default function App() {
   const [twilioConfig, setTwilioConfig] = useState({ sid: '', api_key: '', phone: '' });
   const [uvConfig, setUVConfig] = useState({ api_key: '' });
   const [resendConfig, setResendConfig] = useState({ api_key: '' });
-  const [evolutionConfig, setEvolutionConfig] = useState({ url: '', api_key: '', instance: 'azlon_whatsapp' });
-  const [waStatus, setWaStatus] = useState({ loading: true, connected: false, qrCode: null, error: null });
   const [isSavingCreds, setIsSavingCreds] = useState(false);
   const [isSavingUV, setIsSavingUV] = useState(false);
   const [isSavingResend, setIsSavingResend] = useState(false);
-  const [isSavingEvolution, setIsSavingEvolution] = useState(false);
 
   const fetchTwilioConfig = async () => {
     try {
@@ -53,27 +50,12 @@ export default function App() {
     } catch (e) { }
   };
 
-  const fetchEvolutionConfig = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/integrations/evolution_api`);
-      const data = await res.json();
-      if (data.success && data.integration) {
-          setEvolutionConfig({
-              url: data.integration.meta_data?.url || '',
-              api_key: data.integration.api_key || '',
-              instance: data.integration.meta_data?.instance || 'azlon_whatsapp'
-          });
-      }
-    } catch (e) { }
-  };
 
   useEffect(() => {
     if (activePage === 'credentials') {
       fetchTwilioConfig();
       fetchUVConfig();
       fetchResendConfig();
-      fetchEvolutionConfig();
-      fetchWAStatus();
     }
   }, [activePage]);
 
@@ -99,22 +81,6 @@ export default function App() {
     }
   };
 
-  const saveEvolutionConfig = async (e) => {
-    e.preventDefault();
-    setIsSavingEvolution(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/integrations`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: 'evolution_api', api_key: evolutionConfig.api_key, meta_data: { url: evolutionConfig.url, instance: evolutionConfig.instance } })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      showToast('Evolution API saved! Scanning QR...', 'success');
-      setTimeout(fetchWAStatus, 800);
-    } catch (e) { showToast('Failed to save: ' + e.message, 'error'); }
-    setIsSavingEvolution(false);
-  };
 
   const saveTwilioConfig = async (e) => {
     e.preventDefault();
@@ -1636,39 +1602,61 @@ export default function App() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {callLogs.filter(c => c.recording_url).map((c, i) => (
-                <div key={i} className="bg-card border border-border rounded-2xl p-5 shadow-premium hover:border-primary/50 transition-all group">
-                   <div className="flex justify-between items-start mb-4">
-                      <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-white transition-all">
-                        <Mic size={20} />
-                      </div>
-                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{new Date(c.created_at).toLocaleDateString()}</span>
-                   </div>
-                   <div className="space-y-1 mb-6">
-                      <div className="text-sm font-bold truncate">{c.caller_name || 'Anonymous Caller'}</div>
-                      <div className="text-xs text-muted-foreground font-mono">{c.direction === 'inbound' ? c.from_phone : c.to_phone}</div>
-                   </div>
-                   <div className="bg-sidebar/30 rounded-xl p-3 border border-border mb-5">
-                      <audio controls className="w-full h-8">
-                        <source src={c.recording_url} type="audio/mpeg" />
-                      </audio>
-                   </div>
-                   <div className="flex gap-2">
-                      <button onClick={() => setViewSummaryModal(c)} className="flex-1 bg-white/5 hover:bg-white/10 text-[11px] font-bold py-2 rounded-lg border border-border transition-colors uppercase tracking-wider">View Summary</button>
-                      <a href={c.recording_url} target="_blank" rel="noreferrer" className="px-3 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-lg flex items-center justify-center transition-all">
-                        <Download size={14} />
-                      </a>
-                   </div>
-                </div>
-              ))}
-              {callLogs.filter(c => c.recording_url).length === 0 && (
-                <div className="col-span-3 text-center py-20 bg-card border border-dashed border-border rounded-2xl">
-                   <Mic size={40} className="mx-auto text-muted-foreground/20 mb-4" />
-                   <h3 className="font-bold text-lg text-muted-foreground">No recordings found</h3>
-                   <p className="text-xs text-muted-foreground mt-1">Recordings will appear here once calls are completed.</p>
-                </div>
-              )}
+            <div className="bg-card border border-border rounded-2xl shadow-premium-lg overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-sidebar/30">
+                      <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Date/Time</th>
+                      <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Caller</th>
+                      <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Direction</th>
+                      <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Recording</th>
+                      <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/40">
+                    {callLogs.filter(c => c.recording_url).map((c, i) => (
+                      <tr key={i} className="hover:bg-white/[0.02] transition">
+                        <td className="py-4 px-5">
+                          <div className="text-sm font-medium">{new Date(c.created_at).toLocaleDateString()}</div>
+                          <div className="text-[10px] text-muted-foreground">{new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                        </td>
+                        <td className="py-4 px-5">
+                          <div className="text-sm font-bold">{c.caller_name || 'Anonymous'}</div>
+                          <div className="text-xs text-muted-foreground font-mono">{c.direction === 'inbound' ? c.from_phone : c.to_phone}</div>
+                        </td>
+                        <td className="py-4 px-5 px-5">
+                          <span className={`px-2 py-1 rounded-md text-[10px] uppercase font-bold ${c.direction === 'inbound' ? 'bg-primary/10 text-primary' : 'bg-purple-500/10 text-purple-400'}`}>
+                            {c.direction}
+                          </span>
+                        </td>
+                        <td className="py-4 px-5 min-w-[200px]">
+                           <div className="bg-sidebar/30 rounded-lg px-2 py-1 border border-border/50 max-w-[200px]">
+                              <audio controls className="w-full h-8 scale-90 origin-left">
+                                <source src={c.recording_url} type="audio/mpeg" />
+                              </audio>
+                           </div>
+                        </td>
+                        <td className="py-4 px-5 text-right">
+                          <div className="flex justify-end gap-2">
+                             <button onClick={() => setViewSummaryModal(c)} className="bg-white/5 hover:bg-white/10 text-[10px] font-bold px-3 py-1.5 rounded-lg border border-border transition-colors uppercase tracking-wider">Summary</button>
+                             <a href={c.recording_url} target="_blank" rel="noreferrer" className="p-2 bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 rounded-lg transition-all">
+                               <Download size={14} />
+                             </a>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {callLogs.filter(c => c.recording_url).length === 0 && (
+                      <tr>
+                        <td colSpan="5" className="text-center py-20 text-muted-foreground text-xs italic">
+                          No voice recordings found in storage.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -1773,65 +1761,6 @@ export default function App() {
               </form>
             </div>
 
-            {/* --- EVOLUTION API — WhatsApp QR Scanner --- */}
-            <div className="bg-card border border-green-500/30 rounded-2xl p-8 shadow-premium-lg mt-8">
-              <h3 className="text-sm font-bold uppercase tracking-widest mb-1 flex items-center gap-2">
-                <span className="text-green-400 text-lg">💬</span> WhatsApp — Evolution API
-              </h3>
-              <p className="text-xs text-muted-foreground mb-5">Connect your personal WhatsApp number by scanning the QR code below. Messages will be sent directly from your number.</p>
-
-              {/* Config Form */}
-              <form onSubmit={saveEvolutionConfig} className="space-y-4 mb-6">
-                <div>
-                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Evolution API URL</label>
-                  <input value={evolutionConfig.url} onChange={e => setEvolutionConfig({...evolutionConfig, url: e.target.value})} placeholder="https://your-evolution-api.com" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Global API Key</label>
-                  <input type="password" value={evolutionConfig.api_key} onChange={e => setEvolutionConfig({...evolutionConfig, api_key: e.target.value})} placeholder="your-evolution-api-key" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Instance Name</label>
-                  <input value={evolutionConfig.instance} onChange={e => setEvolutionConfig({...evolutionConfig, instance: e.target.value})} placeholder="azlon_whatsapp" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
-                </div>
-                <button type="submit" disabled={isSavingEvolution} className="w-full bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30 font-bold py-3.5 rounded-xl transition-all">
-                  {isSavingEvolution ? 'Saving...' : 'Save & Connect'}
-                </button>
-              </form>
-
-              {/* QR / Status Panel */}
-              <div className="flex flex-col items-center justify-center min-h-[220px] border border-dashed border-green-500/30 rounded-2xl p-6 bg-green-500/5">
-                {waStatus.loading ? (
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="w-8 h-8 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-xs text-muted-foreground">Checking WhatsApp status...</p>
-                  </div>
-                ) : waStatus.connected ? (
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="w-14 h-14 bg-green-500/20 rounded-full flex items-center justify-center text-green-400 text-3xl">✓</div>
-                    <p className="text-sm font-bold text-green-400">WhatsApp Connected! 🟢</p>
-                    <p className="text-xs text-muted-foreground">Your number is active and ready to send messages.</p>
-                    <button onClick={reconnectWA} className="text-[11px] border border-border px-4 py-1.5 rounded-lg hover:text-primary transition mt-2">🔄 Reconnect / Change Number</button>
-                  </div>
-                ) : waStatus.qrCode ? (
-                  <div className="flex flex-col items-center gap-3">
-                    <p className="text-xs font-bold text-green-400 uppercase tracking-wider mb-2">Scan with WhatsApp to Connect</p>
-                    <img src={waStatus.qrCode} alt="WhatsApp QR Code" className="w-52 h-52 rounded-xl border border-green-500/40 shadow-lg" />
-                    <p className="text-[10px] text-muted-foreground mt-1">Open WhatsApp → Linked Devices → Link a Device</p>
-                    <div className="flex gap-2 mt-2">
-                      <button onClick={fetchWAStatus} className="text-[11px] border border-border px-4 py-1.5 rounded-lg hover:text-green-400 transition">🔄 Refresh Status</button>
-                      <button onClick={reconnectWA} className="text-[11px] border border-border px-4 py-1.5 rounded-lg hover:text-yellow-400 transition">New QR Code</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="text-4xl">📵</div>
-                    <p className="text-sm text-muted-foreground text-center">{waStatus.error || 'Not configured. Save your Evolution API credentials above to get started.'}</p>
-                    {waStatus.error && <button onClick={fetchWAStatus} className="text-[11px] border border-border px-4 py-1.5 rounded-lg hover:text-primary transition mt-1">Retry</button>}
-                  </div>
-                )}
-              </div>
-            </div>
 
             {/* --- ULTRAVOX CORPUS API KEY --- */}
             <div className="bg-card border border-border rounded-2xl p-8 shadow-premium-lg mt-8">
