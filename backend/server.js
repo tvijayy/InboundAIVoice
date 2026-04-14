@@ -1137,7 +1137,8 @@ app.post('/api/tools/availability', async (req, res) => {
 
         // 2. Determine day name (Timezone Independent Fix)
         const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        const targetDateObj = new Date(`${target_date}T00:00:00+05:30`);
+        const [y, m, d] = target_date.split('-');
+        const targetDateObj = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
         const targetDayName = days[targetDateObj.getUTCDay()];
 
         if ((agentData.non_working_dates || []).includes(target_date)) {
