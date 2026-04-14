@@ -2000,7 +2000,7 @@ export default function App() {
         </div>
       )}
        <div className="p-8 mt-auto text-center text-xs text-muted-foreground border-t border-border/30">
-         © 2026 Azlon AI Platform • Dashboard Version V2.2
+         © 2026 Azlon AI Platform • Dashboard Version V2.3
        </div>
       </main>
     </div>
