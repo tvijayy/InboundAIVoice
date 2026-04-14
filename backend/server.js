@@ -65,7 +65,7 @@ async function dispatchOmnichannel(appointmentId, name, phone, email, templateTy
     const TWILIO_SID = twInt?.meta_data?.sid || process.env.TWILIO_ACCOUNT_SID;
     const TWILIO_AUTH = twInt?.api_key || process.env.TWILIO_AUTH_TOKEN;
     const TWILIO_PHONE = twInt?.meta_data?.phone || process.env.TWILIO_PHONE_NUMBER;
-    const TWILIO_WHATSAPP_SENDER = 'whatsapp:+14155238886'; 
+    const TWILIO_WHATSAPP_SENDER = twInt?.meta_data?.whatsapp_phone || process.env.TWILIO_WHATSAPP_SENDER || 'whatsapp:+14155238886'; 
     
     const RESEND_API_KEY = reInt?.api_key || process.env.RESEND_API_KEY;
     const GMAIL_USER = gmInt?.meta_data?.user || gmInt?.meta_data?.email || process.env.GMAIL_USER;
@@ -91,25 +91,37 @@ async function dispatchOmnichannel(appointmentId, name, phone, email, templateTy
         emailHtml = `<h2>We missed you!</h2><p>Hi ${name},</p><p>We didn't see you at your appointment today at ${startTimeStr}.</p><p>Please let us know when you would like to reschedule!</p>`;
     }
 
-    // --- 2. SMS/WhatsApp via Twilio ---
+    // --- 2. SMS via Twilio ---
     if (phone && TWILIO_SID && TWILIO_AUTH && TWILIO_PHONE) {
+        const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
+        let nums = String(phone).replace(/\D/g, '');
+        const cleanPhone = String(phone).startsWith('+') ? String(phone) : (nums.length === 10 ? `+91${nums}` : `+${nums}`);
+        
         try {
-            const twilioClient = require('twilio')(TWILIO_SID, TWILIO_AUTH);
-            let nums = String(phone).replace(/\D/g, '');
-            const cleanPhone = String(phone).startsWith('+') ? String(phone) : (nums.length === 10 ? `+91${nums}` : `+${nums}`);
             await twilioClient.messages.create({ body: smsBody, from: TWILIO_PHONE, to: cleanPhone });
-            await twilioClient.messages.create({ body: smsBody, from: TWILIO_WHATSAPP_SENDER, to: `whatsapp:${cleanPhone}` });
-            console.log(`[Omnichannel] SMS/WA sent to ${cleanPhone}`);
-            
-            // Log SUCCESS to database
+            console.log(`[Omnichannel] SMS sent to ${cleanPhone}`);
             if (appointmentId && appointmentId !== 'unknown') {
                 await supabase.from('appointments').update({ sms_status: 'Sent' }).eq('id', appointmentId);
             }
         } catch(e) {
-            console.error(`[Omnichannel] Twilio Error:`, e.message);
-            // Log FAILURE to database
+            console.error(`[Omnichannel] Twilio SMS Error:`, e.message);
             if (appointmentId && appointmentId !== 'unknown') {
                 await supabase.from('appointments').update({ sms_status: 'Failed' }).eq('id', appointmentId);
+            }
+        }
+
+        // --- 2.5 WhatsApp via Twilio ---
+        let waSenderFormat = TWILIO_WHATSAPP_SENDER.startsWith('whatsapp:') ? TWILIO_WHATSAPP_SENDER : `whatsapp:${TWILIO_WHATSAPP_SENDER}`;
+        try {
+            await twilioClient.messages.create({ body: smsBody, from: waSenderFormat, to: `whatsapp:${cleanPhone}` });
+            console.log(`[Omnichannel] WhatsApp sent to ${cleanPhone}`);
+            if (appointmentId && appointmentId !== 'unknown') {
+                await supabase.from('appointments').update({ whatsapp_status: 'Sent' }).eq('id', appointmentId);
+            }
+        } catch(e) {
+            console.error(`[Omnichannel] Twilio WhatsApp Error:`, e.message);
+            if (appointmentId && appointmentId !== 'unknown') {
+                await supabase.from('appointments').update({ whatsapp_status: 'Failed' }).eq('id', appointmentId);
             }
         }
     }

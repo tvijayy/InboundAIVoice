@@ -788,7 +788,7 @@ export default function App() {
               </div>
               <div className="p-4">
                 <table className="w-full text-left text-sm">
-                  <thead><tr className="border-b border-border"><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Name</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Phone</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Date & Time</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">SMS Status</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Email Status</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Booking</th></tr></thead>
+                  <thead><tr className="border-b border-border"><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Name</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Phone</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Date & Time</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">SMS Status</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">WhatsApp Status</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Email Status</th><th className="pb-3 px-2 text-xs font-medium text-muted-foreground">Booking</th></tr></thead>
                   <tbody>
                     {appointments.map((a, i) => (
                       <tr key={i} className="border-b border-border/40 hover:bg-white/5 transition">
@@ -802,6 +802,15 @@ export default function App() {
                             'bg-gray-500/10 text-gray-400'
                           }`}>
                             {a.sms_status || 'Pending'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold ${
+                            a.whatsapp_status === 'Sent' ? 'bg-green-500/10 text-green-400' : 
+                            a.whatsapp_status === 'Failed' ? 'bg-red-500/10 text-red-400' : 
+                            'bg-gray-500/10 text-gray-400'
+                          }`}>
+                            {a.whatsapp_status || 'Pending'}
                           </span>
                         </td>
                         <td className="py-3 px-2">
@@ -1257,8 +1266,8 @@ export default function App() {
                 <p className="text-sm text-muted-foreground mt-1.5 font-medium">Monitoring AI output across SMS, Email, and API integrations</p>
               </div>
               <button onClick={() => {
-                const rows = appointments.map(a => [a.name||'', a.phone||'', a.email||'', a.sms_status||'Pending', a.email_status||'Pending', new Date(a.created_at||a.start_time).toLocaleString()].map(v => '"' + v + '"').join(','));
-                const csv = ['Name,Phone,Email,SMS Status,Email Status,Booked At', ...rows].join('\n');
+                const rows = appointments.map(a => [a.name||'', a.phone||'', a.email||'', a.sms_status||'Pending', a.whatsapp_status||'Pending', a.email_status||'Pending', new Date(a.created_at||a.start_time).toLocaleString()].map(v => '"' + v + '"').join(','));
+                const csv = ['Name,Phone,Email,SMS Status,WhatsApp Status,Email Status,Booked At', ...rows].join('\n');
                 const anchor = document.createElement('a');
                 anchor.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
                 anchor.download = 'communications_' + new Date().toISOString().slice(0,10) + '.csv';
@@ -1267,13 +1276,14 @@ export default function App() {
                 <Download size={13} /> Export CSV
               </button>
             </div>
-            <div className="grid grid-cols-5 gap-4">
+            <div className="grid grid-cols-6 gap-4">
               {[
                 { label: 'Total Syncs', value: appointments.length, color: 'text-primary', bg: 'from-primary/5 to-purple-500/5' },
                 { label: 'SMS Delivered', value: appointments.filter(a => a.sms_status === 'Sent').length, color: 'text-emerald-400', bg: 'from-emerald-500/5 to-teal-500/5' },
+                { label: 'WA Delivered', value: appointments.filter(a => a.whatsapp_status === 'Sent').length, color: 'text-green-400', bg: 'from-green-500/5 to-emerald-500/5' },
                 { label: 'Email Delivered', value: appointments.filter(a => a.email_status === 'Sent').length, color: 'text-blue-400', bg: 'from-blue-500/5 to-cyan-500/5' },
-                { label: 'Engagement', value: appointments.filter(a => a.status === 'completed' || (a.email_status === 'Sent' && a.sms_status === 'Sent')).length, color: 'text-purple-400', bg: 'from-indigo-500/5 to-fuchsia-500/5' },
-                { label: 'Issues', value: appointments.filter(a => a.sms_status === 'Failed' || a.email_status === 'Failed').length, color: 'text-amber-400', bg: 'from-amber-500/5 to-orange-500/5' },
+                { label: 'Engagement', value: appointments.filter(a => a.status === 'completed' || (a.email_status === 'Sent' && (a.sms_status === 'Sent' || a.whatsapp_status === 'Sent'))).length, color: 'text-purple-400', bg: 'from-indigo-500/5 to-fuchsia-500/5' },
+                { label: 'Issues', value: appointments.filter(a => a.sms_status === 'Failed' || a.whatsapp_status === 'Failed' || a.email_status === 'Failed').length, color: 'text-amber-400', bg: 'from-amber-500/5 to-orange-500/5' },
               ].map((s, i) => (
                 <div key={i} className={'bg-gradient-to-br ' + s.bg + ' border border-border rounded-2xl p-5'}>
                   <div className="text-2xs font-bold text-muted-foreground uppercase tracking-ultra mb-2">{s.label}</div>
@@ -1294,6 +1304,7 @@ export default function App() {
                       <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Phone</th>
                       <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Email Address</th>
                       <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">SMS</th>
+                      <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">WhatsApp</th>
                       <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Email</th>
                       <th className="py-3 px-5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Booked At</th>
                     </tr>
@@ -1307,6 +1318,9 @@ export default function App() {
                         <td className="py-3 px-5"><span className={cn('px-2.5 py-1 rounded-full text-[10px] uppercase font-bold',
                           a.sms_status === 'Sent' ? 'bg-emerald-500/10 text-emerald-400' : a.sms_status === 'Failed' ? 'bg-red-500/10 text-red-400' : 'bg-gray-500/10 text-gray-400')}>
                           {a.sms_status || 'Pending'}</span></td>
+                        <td className="py-3 px-5"><span className={cn('px-2.5 py-1 rounded-full text-[10px] uppercase font-bold',
+                          a.whatsapp_status === 'Sent' ? 'bg-emerald-500/10 text-emerald-400' : a.whatsapp_status === 'Failed' ? 'bg-red-500/10 text-red-400' : 'bg-gray-500/10 text-gray-400')}>
+                          {a.whatsapp_status || 'Pending'}</span></td>
                         <td className="py-3 px-5"><span className={cn('px-2.5 py-1 rounded-full text-[10px] uppercase font-bold',
                           a.email_status === 'Sent' ? 'bg-emerald-500/10 text-emerald-400' : a.email_status === 'Failed' ? 'bg-red-500/10 text-red-400' : 'bg-gray-500/10 text-gray-400')}>
                           {a.email_status || 'Pending'}</span></td>
