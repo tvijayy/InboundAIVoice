@@ -2341,10 +2341,6 @@ cron.schedule('*/5 * * * *', async () => {
     }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`AI Backend API running on port ${PORT}...`);
-});
-
 // ── ULTRAVOX CORPORA ROUTES ──
 
 const multer = require('multer');
@@ -2548,6 +2544,10 @@ app.post('/api/whatsapp/connect', async (req, res) => {
         console.error('[Evolution] Connect error:', err.response?.data || err.message);
         res.json({ success: false, error: err.response?.data?.message || err.message });
     }
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`AI Backend API running on port ${PORT}...`);
 });
 
 
