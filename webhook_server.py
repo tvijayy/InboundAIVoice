@@ -540,9 +540,11 @@ async def handle_call_ended(call_id: str, event: dict):
             resp = await _client.chat.completions.create(
                 model="gpt-4o-mini", max_tokens=5,
                 messages=[{"role": "user", "content":
-                    f"Classify this call as one word: positive, neutral, negative, or frustrated.\n\n{transcript_text[:800]}"}]
+                    f"Classify this call as one word: booked, positive, neutral, negative, or frustrated. If they agreed to a meeting, reply booked.\n\n{transcript_text[:800]}"}]
             )
             sentiment = resp.choices[0].message.content.strip().lower()
+            if booking_intent and sentiment not in ["booked", "positive"]:
+                sentiment = "booked"
             logger.info(f"[SENTIMENT] {sentiment}")
         except Exception as e:
             logger.warning(f"[SENTIMENT] Failed: {e}")
