@@ -2484,11 +2484,15 @@ app.get('/api/whatsapp/status', async (req, res) => {
         const headers = { apikey: key };
 
         // Check instance connection status
-        const statusRes = await axios.get(`${url}/instance/connectionState/${instance}`, { headers });
-        const state = statusRes.data?.instance?.state || statusRes.data?.state || 'close';
-
-        if (state === 'open') {
-            return res.json({ connected: true, state });
+        let state = 'close';
+        try {
+            const statusRes = await axios.get(`${url}/instance/connectionState/${instance}`, { headers });
+            state = statusRes.data?.instance?.state || statusRes.data?.state || 'close';
+            if (state === 'open') {
+                return res.json({ connected: true, state });
+            }
+        } catch (e) {
+            console.warn('[Evolution] Instance not found or error checking status, will attempt to connect/create.');
         }
 
         // Not connected — fetch QR code

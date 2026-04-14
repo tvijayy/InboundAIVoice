@@ -53,11 +53,26 @@ export default function App() {
     } catch (e) { }
   };
 
+  const fetchEvolutionConfig = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/integrations/evolution_api`);
+      const data = await res.json();
+      if (data.success && data.integration) {
+          setEvolutionConfig({
+              url: data.integration.meta_data?.url || '',
+              api_key: data.integration.api_key || '',
+              instance: data.integration.meta_data?.instance || 'azlon_whatsapp'
+          });
+      }
+    } catch (e) { }
+  };
+
   useEffect(() => {
     if (activePage === 'credentials') {
       fetchTwilioConfig();
       fetchUVConfig();
       fetchResendConfig();
+      fetchEvolutionConfig();
       fetchWAStatus();
     }
   }, [activePage]);
