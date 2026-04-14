@@ -22,9 +22,12 @@ export default function App() {
   const [twilioConfig, setTwilioConfig] = useState({ sid: '', api_key: '', phone: '' });
   const [uvConfig, setUVConfig] = useState({ api_key: '' });
   const [resendConfig, setResendConfig] = useState({ api_key: '' });
+  const [evolutionConfig, setEvolutionConfig] = useState({ url: '', api_key: '', instance: 'azlon_whatsapp' });
+  const [waStatus, setWaStatus] = useState({ loading: true, connected: false, qrCode: null, error: null });
   const [isSavingCreds, setIsSavingCreds] = useState(false);
   const [isSavingUV, setIsSavingUV] = useState(false);
   const [isSavingResend, setIsSavingResend] = useState(false);
+  const [isSavingEvolution, setIsSavingEvolution] = useState(false);
 
   const fetchTwilioConfig = async () => {
     try {
@@ -55,8 +58,48 @@ export default function App() {
       fetchTwilioConfig();
       fetchUVConfig();
       fetchResendConfig();
+      fetchWAStatus();
     }
   }, [activePage]);
+
+  const fetchWAStatus = async () => {
+    setWaStatus(p => ({ ...p, loading: true, error: null }));
+    try {
+      const res = await fetch(`${API_BASE}/api/whatsapp/status`);
+      const data = await res.json();
+      setWaStatus({ loading: false, connected: data.connected, qrCode: data.qrCode || null, error: data.error || null });
+    } catch (e) {
+      setWaStatus({ loading: false, connected: false, qrCode: null, error: 'Backend unreachable' });
+    }
+  };
+
+  const reconnectWA = async () => {
+    setWaStatus(p => ({ ...p, loading: true, qrCode: null, error: null }));
+    try {
+      const res = await fetch(`${API_BASE}/api/whatsapp/connect`, { method: 'POST' });
+      const data = await res.json();
+      setWaStatus({ loading: false, connected: false, qrCode: data.qrCode || null, error: data.error || null });
+    } catch (e) {
+      setWaStatus({ loading: false, connected: false, qrCode: null, error: 'Failed to connect' });
+    }
+  };
+
+  const saveEvolutionConfig = async (e) => {
+    e.preventDefault();
+    setIsSavingEvolution(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/integrations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'evolution_api', api_key: evolutionConfig.api_key, meta_data: { url: evolutionConfig.url, instance: evolutionConfig.instance } })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      showToast('Evolution API saved! Scanning QR...', 'success');
+      setTimeout(fetchWAStatus, 800);
+    } catch (e) { showToast('Failed to save: ' + e.message, 'error'); }
+    setIsSavingEvolution(false);
+  };
 
   const saveTwilioConfig = async (e) => {
     e.preventDefault();
@@ -1713,6 +1756,66 @@ export default function App() {
                   </button>
                 </div>
               </form>
+            </div>
+
+            {/* --- EVOLUTION API — WhatsApp QR Scanner --- */}
+            <div className="bg-card border border-green-500/30 rounded-2xl p-8 shadow-premium-lg mt-8">
+              <h3 className="text-sm font-bold uppercase tracking-widest mb-1 flex items-center gap-2">
+                <span className="text-green-400 text-lg">💬</span> WhatsApp — Evolution API
+              </h3>
+              <p className="text-xs text-muted-foreground mb-5">Connect your personal WhatsApp number by scanning the QR code below. Messages will be sent directly from your number.</p>
+
+              {/* Config Form */}
+              <form onSubmit={saveEvolutionConfig} className="space-y-4 mb-6">
+                <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Evolution API URL</label>
+                  <input value={evolutionConfig.url} onChange={e => setEvolutionConfig({...evolutionConfig, url: e.target.value})} placeholder="https://your-evolution-api.com" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Global API Key</label>
+                  <input type="password" value={evolutionConfig.api_key} onChange={e => setEvolutionConfig({...evolutionConfig, api_key: e.target.value})} placeholder="your-evolution-api-key" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-muted-foreground uppercase tracking-ultra mb-2">Instance Name</label>
+                  <input value={evolutionConfig.instance} onChange={e => setEvolutionConfig({...evolutionConfig, instance: e.target.value})} placeholder="azlon_whatsapp" className="w-full bg-background border border-border p-3 rounded-xl text-sm outline-none focus:border-primary transition-all font-mono" required />
+                </div>
+                <button type="submit" disabled={isSavingEvolution} className="w-full bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/30 font-bold py-3.5 rounded-xl transition-all">
+                  {isSavingEvolution ? 'Saving...' : 'Save & Connect'}
+                </button>
+              </form>
+
+              {/* QR / Status Panel */}
+              <div className="flex flex-col items-center justify-center min-h-[220px] border border-dashed border-green-500/30 rounded-2xl p-6 bg-green-500/5">
+                {waStatus.loading ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-8 h-8 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
+                    <p className="text-xs text-muted-foreground">Checking WhatsApp status...</p>
+                  </div>
+                ) : waStatus.connected ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-14 h-14 bg-green-500/20 rounded-full flex items-center justify-center text-green-400 text-3xl">✓</div>
+                    <p className="text-sm font-bold text-green-400">WhatsApp Connected! 🟢</p>
+                    <p className="text-xs text-muted-foreground">Your number is active and ready to send messages.</p>
+                    <button onClick={reconnectWA} className="text-[11px] border border-border px-4 py-1.5 rounded-lg hover:text-primary transition mt-2">🔄 Reconnect / Change Number</button>
+                  </div>
+                ) : waStatus.qrCode ? (
+                  <div className="flex flex-col items-center gap-3">
+                    <p className="text-xs font-bold text-green-400 uppercase tracking-wider mb-2">Scan with WhatsApp to Connect</p>
+                    <img src={waStatus.qrCode} alt="WhatsApp QR Code" className="w-52 h-52 rounded-xl border border-green-500/40 shadow-lg" />
+                    <p className="text-[10px] text-muted-foreground mt-1">Open WhatsApp → Linked Devices → Link a Device</p>
+                    <div className="flex gap-2 mt-2">
+                      <button onClick={fetchWAStatus} className="text-[11px] border border-border px-4 py-1.5 rounded-lg hover:text-green-400 transition">🔄 Refresh Status</button>
+                      <button onClick={reconnectWA} className="text-[11px] border border-border px-4 py-1.5 rounded-lg hover:text-yellow-400 transition">New QR Code</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="text-4xl">📵</div>
+                    <p className="text-sm text-muted-foreground text-center">{waStatus.error || 'Not configured. Save your Evolution API credentials above to get started.'}</p>
+                    {waStatus.error && <button onClick={fetchWAStatus} className="text-[11px] border border-border px-4 py-1.5 rounded-lg hover:text-primary transition mt-1">Retry</button>}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* --- ULTRAVOX CORPUS API KEY --- */}
