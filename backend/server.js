@@ -1954,6 +1954,24 @@ app.post('/api/integrations/ultravox', async (req, res) => {
     } catch(err) { res.status(500).json({ error: "Failed to save integration" }); }
 });
 
+// --- EVOLUTION API INTEGRATION ---
+app.get('/api/integrations/evolution_api', async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('integrations').select('*').eq('provider', 'evolution_api').single();
+        if (error && error.code !== 'PGRST116') throw error;
+        if (!data) return res.json({ success: true, integration: null });
+        
+        // For public reference if needed
+        const integration = {
+            url: data.meta_data?.url || '',
+            instance: data.meta_data?.instance || 'azlon_whatsapp',
+            // Return masked key for UI display
+            api_key: data.api_key ? (data.api_key.substring(0, 4) + '****************' + data.api_key.substring(data.api_key.length - 4)) : ''
+        };
+        res.json({ success: true, integration });
+    } catch(err) { res.status(500).json({ error: "Failed to fetch integration" }); }
+});
+
 // --- Shared CSV Parser (used by both CSV upload and Google Sheets) ---
 function parseCSVContacts(csvText) {
     const lines = csvText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
