@@ -1133,11 +1133,20 @@ function forceIST(dateStr) {
 app.post('/api/tools/availability', async (req, res) => {
     try {
         const { target_date } = req.body;
-        if (!target_date) return res.json({ available_slots: "Please provide a target_date (YYYY-MM-DD)." });
+        console.log(`[AI TOOL] 🔍 Availability check requested for: ${target_date}`);
+        
+        if (!target_date || !target_date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            console.warn(`[AI TOOL] ⚠️ Invalid or missing target_date: ${target_date}`);
+            return res.json({ available_slots: "Please provide a valid target_date in YYYY-MM-DD format." });
+        }
 
-        // 1. Fetch current agent settings for business hours
-        const { data: agentData } = await supabase.from('agent_settings').select('*').limit(1).single();
-        if (!agentData) return res.json({ available_slots: "Business hours not configured." });
+        // 1. Fetch current agent settings for business hours (Defensive Fetch)
+        const { data: agentData, error: agentError } = await supabase.from('agent_settings').select('*').limit(1).maybeSingle();
+        
+        if (agentError) {
+            console.error(`[AI TOOL] ❌ Database error fetching agent_settings:`, agentError);
+            // Don't crash, use defaults below
+        }
 
         // 2. Determine day name (Timezone Independent Fix)
         const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -1145,19 +1154,25 @@ app.post('/api/tools/availability', async (req, res) => {
         const targetDateObj = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
         const targetDayName = days[targetDateObj.getUTCDay()];
 
-        if ((agentData.non_working_dates || []).includes(target_date)) {
-            return res.json({ available_slots: "Closed for holiday on " + target_date });
-        }
-        const workingDays = Array.isArray(agentData.working_days) ? agentData.working_days : ["Mon", "Tue", "Wed", "Thu", "Fri"];
-        if (!workingDays.includes(targetDayName)) {
-            return res.json({ available_slots: "Business is closed on " + targetDayName + "s." });
+        // 3. Apply Settings or Defaults
+        const nonWorkingDates = agentData?.non_working_dates || [];
+        const workingDays = Array.isArray(agentData?.working_days) ? agentData.working_days : ["Mon", "Tue", "Wed", "Thu", "Fri"];
+        const openTime = agentData?.open_time || '09:00';
+        const closeTime = agentData?.close_time || '18:00';
+
+        if (nonWorkingDates.includes(target_date)) {
+            console.log(`[AI TOOL] 🏖️ Holiday detected on ${target_date}`);
+            return res.json({ available_slots: "The business is closed for a holiday on " + target_date });
         }
         
-        // 3. Generate slots in IST (30-minute intervals)
-        const openTime = agentData.open_time || '09:00';
-        const closeTime = agentData.close_time || '18:00';
+        if (!workingDays.includes(targetDayName)) {
+            console.log(`[AI TOOL] 🚪 Closed on ${targetDayName}`);
+            return res.json({ available_slots: "The business is closed on " + targetDayName + "s." });
+        }
+        
+        // 4. Generate slots in IST (30-minute intervals)
         const [openH, openM] = openTime.split(':').map(Number);
-        const [closeH, closeM] = closeTime.split(':').map(Number);
+        const [closeH, closeM] = (closeTime || '18:00').split(':').map(Number);
         
         const openMinutes = openH * 60 + (openM || 0);
         const closeMinutes = closeH * 60 + (closeM || 0);
@@ -1170,32 +1185,37 @@ app.post('/api/tools/availability', async (req, res) => {
             allSlots.push(`${target_date}T${timeStr}:00+05:30`);
         }
         
-        // 4. Fetch confirmed appointments for the day to find conflicts using direct database range
+        // 5. Fetch confirmed appointments to find conflicts
         const dayStart = `${target_date}T00:00:00+05:30`;
         const dayEnd = `${target_date}T23:59:59+05:30`;
-        const { data: existingApps } = await supabase
+        const { data: existingApps, error: dbErr } = await supabase
             .from('appointments')
             .select('start_time')
             .eq('status', 'confirmed')
             .gte('start_time', dayStart)
             .lte('start_time', dayEnd);
         
+        if (dbErr) {
+            console.error(`[AI TOOL] ❌ Supabase error fetching appointments for ${target_date}:`, dbErr);
+            throw dbErr;
+        }
+
         const bookedISOs = (existingApps || []).map(a => new Date(a.start_time).toISOString());
         
         let freeSlots = allSlots.filter(slot => {
             const slotISO = new Date(slot).toISOString();
-            // Check for any confirmed booking within 25 mins of this slot to avoid overlap
+            // Check for overlap within 25 minutes
             return !bookedISOs.some(bookedISO => {
                 const diff = Math.abs(new Date(slotISO) - new Date(bookedISO));
-                return diff < 25 * 60 * 1000; // 25 minute proximity check
+                return diff < 25 * 60 * 1000;
             });
         });
         
-        console.log(`Availability for ${target_date}: ${freeSlots.length} free slots. Unified range-check active.`);
-        res.json({ available_slots: freeSlots.length > 0 ? freeSlots : "No free slots on this date." });
+        console.log(`[AI TOOL] ✅ Availability Summary for ${target_date} (${targetDayName}): Found ${freeSlots.length} free slots from ${allSlots.length} possible.`);
+        res.json({ available_slots: freeSlots.length > 0 ? freeSlots : "No free slots available on this date. Please check another day." });
     } catch (e) {
-        console.error("Availability Check Error:", e);
-        res.json({ available_slots: "Error retrieving slots." });
+        console.error("[AI TOOL] 🚨 Availability Crash:", e);
+        res.json({ available_slots: "I'm having a technical issue checking the calendar. Please suggest a date and time, and I will record your request." });
     }
 });
 
