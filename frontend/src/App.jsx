@@ -1124,7 +1124,7 @@ export default function App() {
                         )}
                       </React.Fragment>
                     ))}
-                    {callLogs.length === 0 && <tr><td colSpan="8" className="text-center py-12 text-muted-foreground text-xs">No calls logged yet</td></tr>}
+                    {callLogs.length === 0 && <tr><td colSpan="9" className="text-center py-12 text-muted-foreground text-xs">No calls logged yet</td></tr>}
                   </tbody>
                 </table>
               </div>
