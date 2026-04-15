@@ -31,7 +31,7 @@ if (!BACKEND_URL) {
 
 // Hardcode failsafe for truncated Easypanel environment variables
 let finalDbUrl = 'https://qhqmljwexivhvxzfklum.supabase.co';
-let finalDbKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFocW1sandleGl2aHZ4emZrbHVtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ3MjI3NjQsImV4cCI6MjA4Njg0MDA2M30.M0N3e-7u58W0G2Cis_G1410X83Y9V8n-6P88z4zL0nU';
+let finalDbKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFocW1sandleGl2aHZ4emZrbHVtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3OTM3MjMsImV4cCI6MjA5MDM2OTcyM30.nO_aKJkRRsDNSIWDLgmvos7LxISvenFz2Fwn-62BgLo';
 const supabase = createClient(finalDbUrl, finalDbKey);
 // --- AWS S3 NOTIFICATION ENGINE ---
 async function getS3Client() {
