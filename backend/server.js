@@ -90,6 +90,14 @@ async function dispatchOmnichannel(appointmentId, name, phone, email, templateTy
         smsBody = `Hi ${name}, thanks for speaking with us today! If you have any more questions about Azlon AI, feel free to ask here.`;
         emailSubject = `Great speaking with you, ${name}!`;
         emailHtml = `<h2>Thank you!</h2><p>Hi ${name},</p><p>It was great speaking with you earlier. If you have any further questions or need assistance, we're here to help.</p>`;
+    } else if (templateType === 'booking_updated') {
+        smsBody = `Hi ${name}, your Azlon AI appointment has been correctly rescheduled to ${startTimeStr}.`;
+        emailSubject = `Your appointment has been updated, ${name}`;
+        emailHtml = `<h2>Booking Rescheduled</h2><p>Hi ${name},</p><p>Your appointment has been successfully moved to <b>${startTimeStr}</b>.</p><p>We look forward to speaking with you.</p>`;
+    } else if (templateType === 'booking_deleted') {
+        smsBody = `Hi ${name}, your Azlon AI appointment has been cancelled as requested. Just text back whenever you're ready to re-book!`;
+        emailSubject = `Your appointment has been cancelled`;
+        emailHtml = `<h2>Booking Cancelled</h2><p>Hi ${name},</p><p>Per your request, we have cancelled your upcoming appointment.</p><p>Feel free to reach out when you're ready to reschedule.</p>`;
     }
 
     // --- 2. SMS via Twilio ---
@@ -1418,6 +1426,11 @@ app.post('/api/tools/update', async (req, res) => {
         
         await supabase.from('appointments').update({ start_time: new_start_time }).eq('id', target.id);
         
+        // Dispatch WhatsApp/SMS/Email notifications in the background
+        dispatchOmnichannel(target.id, target.name, target.phone, target.email, 'booking_updated', { start_time: new_start_time }).catch(err => {
+            console.error("Failed to push Omnichannel update alert:", err.message);
+        });
+        
         res.json({ result: "Appointment successfully rescheduled." });
     } catch(err) {
         res.status(500).json({ result: "Failed to update appointment" });
@@ -1436,6 +1449,12 @@ app.post('/api/tools/delete', async (req, res) => {
 
         const target = appointments[0];
         await supabase.from('appointments').delete().eq('id', target.id);
+
+        // Dispatch WhatsApp/SMS/Email notifications in the background
+        dispatchOmnichannel(target.id, target.name, target.phone, target.email, 'booking_deleted', { start_time: target.start_time }).catch(err => {
+            console.error("Failed to push Omnichannel deletion alert:", err.message);
+        });
+
         res.json({ result: "Appointment officially cancelled and removed from the calendar." });
     } catch(err) {
         res.status(500).json({ result: "Failed to delete appointment" });
