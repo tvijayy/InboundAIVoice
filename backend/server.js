@@ -79,7 +79,7 @@ async function dispatchOmnichannel(appointmentId, name, phone, email, templateTy
         emailSubject = `Your appointment is confirmed, ${name}!`;
         emailHtml = `<h2>Booking Confirmed</h2><p>Hi ${name},</p><p>We have successfully scheduled your appointment for <b>${startTimeStr}</b>.</p><p>We look forward to speaking with you.</p>`;
     } else if (templateType === 'meeting_reminder') {
-        smsBody = `Reminder: Hi ${name}, your meeting starts in 30 minutes at ${startTimeStr}.`;
+        smsBody = `Reminder: Hi ${name}, your meeting starts in 30 minutes at ${startTimeStr}. Please be ready.`;
         emailSubject = `Reminder: Upcoming Meeting in 30 Minutes`;
         emailHtml = `<h2>Meeting Reminder</h2><p>Hi ${name},</p><p>This is a quick reminder that your appointment is scheduled to start in 30 minutes at <b>${startTimeStr}</b>.</p>`;
     } else if (templateType === 'meeting_missed') {
@@ -91,7 +91,7 @@ async function dispatchOmnichannel(appointmentId, name, phone, email, templateTy
         emailSubject = `Great speaking with you, ${name}!`;
         emailHtml = `<h2>Thank you!</h2><p>Hi ${name},</p><p>It was great speaking with you earlier. If you have any further questions or need assistance, we're here to help.</p>`;
     } else if (templateType === 'booking_updated') {
-        smsBody = `Hi ${name}, your Azlon AI appointment has been correctly rescheduled to ${startTimeStr}.`;
+        smsBody = `Hi ${name}, your Azlon AI appointment has been correctly rescheduled to ${startTimeStr}. We will speak with you then!`;
         emailSubject = `Your appointment has been updated, ${name}`;
         emailHtml = `<h2>Booking Rescheduled</h2><p>Hi ${name},</p><p>Your appointment has been successfully moved to <b>${startTimeStr}</b>.</p><p>We look forward to speaking with you.</p>`;
     } else if (templateType === 'booking_deleted') {
