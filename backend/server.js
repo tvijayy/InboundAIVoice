@@ -415,7 +415,6 @@ app.post('/api/twilio/inbound', async (req, res) => {
                 voice: finalVoice,
                 temperature: agentData?.temperature || 0.3,
                 firstSpeaker: "FIRST_SPEAKER_AGENT",
-                languageHint: "sr, en",
                 medium: { twilio: {} },
                 selectedTools: selectedTools
             })
@@ -774,7 +773,6 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
                 voice: finalVoice,
                 temperature: agentData?.temperature || 0.3,
                 firstSpeaker: "FIRST_SPEAKER_AGENT",
-                languageHint: "sr, en",
                 medium: { twilio: {} },
                 selectedTools: selectedTools
             })
