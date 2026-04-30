@@ -922,6 +922,8 @@ export default function App() {
                       <option value="Kelsey">🇬🇧 Kelsey (Soft British Female)</option>
                       <option value="Priya">🇮🇳 Priya (Clear Indian Female)</option>
                       <option value="Lulu">🌍 Lulu (Casual Female)</option>
+                      <option value="Milan">🇷🇸 Milan (Serbian Male)</option>
+                      <option value="Danica">🇷🇸 Danica (Serbian Female)</option>
                     </select>
                   </div>
                   <div>
@@ -1376,6 +1378,8 @@ export default function App() {
                   <option value="Kelsey">🇬🇧 Kelsey (Soft British Female)</option>
                   <option value="Priya">🇮🇳 Priya (Clear Indian Female)</option>
                   <option value="Lulu">🌍 Lulu (Casual Female)</option>
+                  <option value="Milan">🇷🇸 Milan (Serbian Male)</option>
+                  <option value="Danica">🇷🇸 Danica (Serbian Female)</option>
                 </select>
               </div>
               

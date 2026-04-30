@@ -247,9 +247,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
         const baseUrl = BACKEND_URL || (req.get('host') ? `https://${req.get('host')}` : '');
         console.log(`[Ultravox] Creating session with tools/callbacks at: ${baseUrl}`);
         
-        const rawVoice = agentData?.voice_preset || "Mark";
-        const validVoices = ["Alice", "Jessica", "Kelsey", "Priya", "Lulu", "Mark", "Victor", "Vitya", "Zdenek"];
-        const finalVoice = validVoices.includes(rawVoice) ? rawVoice : "Mark";
+        const finalVoice = agentData?.voice_preset || "Mark";
 
         const toolsConfig = agentData?.tools_config || { hangUp: true, transferCall: false, queryCorpus: false };
         const selectedTools = [
@@ -609,9 +607,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
 
         finalPrompt += "\n\nHUMAN TRANSFER: If the lead explicitly asks to speak to a real person, a human, or a manager, or if they have a complex technical issue that you cannot solve using the knowledge base, tell them 'I will transfer you to one of our specialists now' and then IMMEDIATELY call 'transfer_call'.";
 
-        const rawVoice = reqVoice || agentData?.voice_preset || "Mark";
-        const validVoices = ["Alice", "Jessica", "Kelsey", "Priya", "Lulu", "Mark", "Victor", "Vitya", "Zdenek"];
-        const finalVoice = validVoices.includes(rawVoice) ? rawVoice : "Mark";
+        const finalVoice = reqVoice || agentData?.voice_preset || "Mark";
 
         const baseUrl = `https://${req.get('host')}`;
         
