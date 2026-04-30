@@ -241,6 +241,8 @@ app.post('/api/twilio/inbound', async (req, res) => {
         finalPrompt += "\n\nULTRA-IMPORTANT - CALL TERMINATION: As soon as you say a FINAL goodbye at the end of a session (e.g., 'Have a great day!' or 'Goodbye') or the caller says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for the caller to hang up first. This is critical to reduce telephony costs.";
         
         finalPrompt += "\n\nHUMAN TRANSFER: If the caller explicitly asks to speak to a real person, a human, or a manager, or if they have a complex technical issue that you cannot solve using the knowledge base, tell them 'I will transfer you to one of our specialists now' and then IMMEDIATELY call 'transfer_call'.";
+        
+        finalPrompt += "\n\nMULTILINGUAL DIRECTIVE: You are a multilingual AI. You MUST automatically detect whether the caller is speaking English or Serbian. If they speak Serbian, you MUST reply natively in Serbian. If they speak English, reply in English. Match their language exactly at all times.";
 
         // Use BACKEND_URL if set, otherwise fallback to request host.
         // Prefer HTTPS if BACKEND_URL is not set but request host is available.
@@ -413,6 +415,7 @@ app.post('/api/twilio/inbound', async (req, res) => {
                 voice: finalVoice,
                 temperature: agentData?.temperature || 0.3,
                 firstSpeaker: "FIRST_SPEAKER_AGENT",
+                languageHint: "sr, en",
                 medium: { twilio: {} },
                 selectedTools: selectedTools
             })
@@ -606,6 +609,8 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
         finalPrompt += "\n\nULTRA-IMPORTANT - CALL TERMINATION: As soon as you say a FINAL goodbye or the lead says goodbye, you MUST call 'hang_up' IMMEDIATELY. Never wait for them to hang up. This is critical to reduce telephony costs.";
 
         finalPrompt += "\n\nHUMAN TRANSFER: If the lead explicitly asks to speak to a real person, a human, or a manager, or if they have a complex technical issue that you cannot solve using the knowledge base, tell them 'I will transfer you to one of our specialists now' and then IMMEDIATELY call 'transfer_call'.";
+        
+        finalPrompt += "\n\nMULTILINGUAL DIRECTIVE: You are a multilingual AI. You MUST automatically detect whether the caller is speaking English or Serbian. If they speak Serbian, you MUST reply natively in Serbian. If they speak English, reply in English. Match their language exactly at all times.";
 
         const finalVoice = reqVoice || agentData?.voice_preset || "Mark";
 
@@ -769,6 +774,7 @@ app.post('/api/twilio/outbound-twiml', async (req, res) => {
                 voice: finalVoice,
                 temperature: agentData?.temperature || 0.3,
                 firstSpeaker: "FIRST_SPEAKER_AGENT",
+                languageHint: "sr, en",
                 medium: { twilio: {} },
                 selectedTools: selectedTools
             })
